@@ -1,29 +1,69 @@
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import LoginScreen     from "./views/LoginScreen";
 import FirstLoginSetup from "./views/FirstLoginSetup";
 import AdminDashboard  from "./views/AdminDashboard";
 import StaffDashboard  from "./views/StaffDashboard";
 
-function Router() {
+function RequireAuth({ children }) {
   const { actor } = useAuth();
+  const location  = useLocation();
+  if (!actor) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (actor.must_change_password) return <Navigate to="/setup-account" replace />;
+  return children;
+}
 
-  // Not logged in → login screen
-  if (!actor) return <LoginScreen />;
+function RequireAdmin({ children }) {
+  const { actor, isAdmin } = useAuth();
+  if (!actor) return <Navigate to="/login" replace />;
+  if (!isAdmin()) return <Navigate to="/my" replace />;
+  return children;
+}
 
-  // Logged in but password not yet changed → first-login setup
-  if (actor.must_change_password) return <FirstLoginSetup />;
+function AppRoutes() {
+  const { actor, isAdmin } = useAuth();
+  return (
+    <Routes>
+      {/* Public */}
+      <Route path="/login"         element={<LoginScreen />} />
+      <Route path="/setup-account" element={<FirstLoginSetup />} />
 
-  // Admin → setup console + cycle control
-  if (actor.is_admin) return <AdminDashboard />;
+      {/* Admin routes */}
+      <Route path="/admin"     element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+      <Route path="/admin/:tab" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
 
-  // Employee (any role) → staff dashboard with role-aware sections
-  return <StaffDashboard />;
+      {/* Staff routes */}
+      <Route path="/my"    element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+      <Route path="/team"  element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+      <Route path="/flags" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+
+      {/* Root redirect based on role */}
+      <Route path="/" element={
+        !actor
+          ? <Navigate to="/login" replace />
+          : actor.must_change_password
+          ? <Navigate to="/setup-account" replace />
+          : isAdmin()
+          ? <Navigate to="/admin/kads" replace />
+          : <Navigate to="/my" replace />
+      }/>
+
+      {/* Catch-all */}
+      <Route path="*" element={
+        !actor ? <Navigate to="/login" replace /> :
+        isAdmin() ? <Navigate to="/admin/kads" replace /> :
+        <Navigate to="/my" replace />
+      }/>
+    </Routes>
+  );
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Router />
-    </AuthProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
