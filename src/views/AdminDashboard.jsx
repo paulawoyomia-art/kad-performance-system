@@ -176,12 +176,14 @@ function PeopleTab() {
   const [kadId, setKadId]       = useState("");
   const { data: people, loading, reload } = useAsync(() => setup.listPeople(kadId || null), [kadId]);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing]   = useState(null);
   const [form, setForm]         = useState({ employee_id:"",full_name:"",designation:"",staff_type:"Management",kad_id:"",email:"",status:"Active",is_hr_manager:false });
   const [err, setErr]           = useState("");
   const [saving, setSaving]     = useState(false);
   const [newPw, setNewPw]       = useState(null);
 
-  function f(k, v) { setForm(p => ({...p, [k]: v})); }
+  function f(k, v)   { setForm(p => ({...p, [k]: v})); }
+  function edf(k, v) { setEditing(p => ({...p, [k]: v})); }
 
   async function createPerson(e) {
     e.preventDefault(); setErr(""); setSaving(true);
@@ -190,6 +192,23 @@ function PeopleTab() {
       setNewPw(r.default_password); setCreating(false);
       setForm({ employee_id:"",full_name:"",designation:"",staff_type:"Management",kad_id:"",email:"",status:"Active",is_hr_manager:false });
       reload();
+    } catch (e) { setErr(e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function savePerson(e) {
+    e.preventDefault(); setErr(""); setSaving(true);
+    try {
+      await setup.updatePerson(editing.id, {
+        full_name:    editing.full_name,
+        designation:  editing.designation,
+        staff_type:   editing.staff_type,
+        email:        editing.email,
+        kad_id:       Number(editing.kad_id),
+        status:       editing.status,
+        is_hr_manager: editing.is_hr_manager ? 1 : 0,
+      });
+      setEditing(null); reload();
     } catch (e) { setErr(e.message); }
     finally { setSaving(false); }
   }
@@ -223,7 +242,7 @@ function PeopleTab() {
 
       {newPw && (
         <div className="alert alert-success" style={{marginBottom:16}}>
-          ✓ Account created. Default password: <strong style={{fontFamily:"monospace"}}>{newPw}</strong> — share with the employee out of band. They will be forced to change it on first login.
+          ✓ Default password: <strong style={{fontFamily:"monospace"}}>{newPw}</strong> — share out of band. Forced to change on first login.
           <button className="btn btn-ghost btn-sm" onClick={()=>setNewPw(null)} style={{marginLeft:"auto"}}>Dismiss</button>
         </div>
       )}
@@ -257,7 +276,12 @@ function PeopleTab() {
                         {p.is_hr_manager ? "✓ HR Mgr" : "HR Mgr"}
                       </button>
                     </td>
-                    <td><button className="btn btn-ghost btn-sm" onClick={()=>resetPw(p.id)}>Reset PW</button></td>
+                    <td>
+                      <div className="flex gap-2">
+                        <button className="btn btn-ghost btn-sm" onClick={() => { setEditing({...p}); setErr(""); }}>Edit</button>
+                        <button className="btn btn-ghost btn-sm" onClick={()=>resetPw(p.id)}>Reset PW</button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -266,6 +290,48 @@ function PeopleTab() {
         </div>
       )}
 
+      {editing && (
+        <Modal title={`Edit — ${editing.full_name}`} onClose={() => { setEditing(null); setErr(""); }}
+          footer={<>
+            <button className="btn btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={savePerson} disabled={saving}>
+              {saving ? <span className="spinner" style={{width:14,height:14}}/> : "Save changes"}
+            </button>
+          </>}>
+          <div className="form-group"><label className="form-label">Full name</label>
+            <input className="form-input" value={editing.full_name} onChange={e=>edf("full_name",e.target.value)}/></div>
+          <div className="form-group"><label className="form-label">Designation</label>
+            <input className="form-input" value={editing.designation} onChange={e=>edf("designation",e.target.value)}/></div>
+          <div className="grid-2">
+            <div className="form-group"><label className="form-label">Staff type</label>
+              <select className="form-select" value={editing.staff_type} onChange={e=>edf("staff_type",e.target.value)}>
+                {["Management","Support","Field"].map(t=><option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label className="form-label">KAD</label>
+              <select className="form-select" value={editing.kad_id} onChange={e=>edf("kad_id",e.target.value)}>
+                {kads?.map(k=><option key={k.id} value={k.id}>{k.kad_name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="form-group"><label className="form-label">Email</label>
+            <input className="form-input" type="email" value={editing.email} onChange={e=>edf("email",e.target.value)}/></div>
+          <div className="form-group"><label className="form-label">Status</label>
+            <select className="form-select" value={editing.status} onChange={e=>edf("status",e.target.value)}>
+              <option>Active</option><option>Inactive</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
+              <input type="checkbox" checked={!!editing.is_hr_manager} onChange={e=>edf("is_hr_manager",e.target.checked)}
+                style={{width:16,height:16,accentColor:"var(--orbit)",cursor:"pointer"}}/>
+              <span style={{fontWeight:500,fontSize:".929rem"}}>HR Manager</span>
+              <span className="t-caption" style={{color:"var(--text-secondary)"}}>Can manage people, roles &amp; allocations</span>
+            </label>
+          </div>
+          {err && <div className="alert alert-danger">{err}</div>}
+        </Modal>
+      )}
       {creating && (
         <Modal title="Add person" onClose={() => {setCreating(false); setErr("");}}
           footer={<>
@@ -620,15 +686,24 @@ export default function AdminDashboard() {
   const tab = SLUG_TABS[tabSlug] || "KADs";
   const setTab = (t) => navigate(`/admin/${TAB_SLUGS[t]}`);
 
-  const nav = TABS.map(t => (
-    <button key={t} className={`nav-item ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
-      {Icons.setup}
-      {t}
-    </button>
-  ));
+  const TAB_ICONS = {
+    "KADs": Icons.setup, "People": Icons.team, "Clients": Icons.allocations,
+    "Role Assignments": Icons.setup, "Projects": Icons.allocations,
+    "Periods": Icons.periods, "Allocations": Icons.allocations,
+  };
+  const TAB_MOBILE = {
+    "KADs": "KADs", "People": "People", "Clients": "Clients",
+    "Role Assignments": "Roles", "Projects": "Projects",
+    "Periods": "Periods", "Allocations": "Allocs",
+  };
+
+  const navItems = TABS.map(t => ({
+    key: t, label: t, mobileLabel: TAB_MOBILE[t], icon: TAB_ICONS[t],
+    active: tab === t, onClick: () => setTab(t),
+  }));
 
   return (
-    <AppShell title={`Admin — ${tab}`} nav={nav}>
+    <AppShell title={`Admin — ${tab}`} navItems={navItems}>
       <div className="tabs">
         {TABS.map(t=>(
           <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>

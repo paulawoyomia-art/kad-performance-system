@@ -283,45 +283,37 @@ function SetTargetButton({ allocId, onDone }) {
 }
 
 // ── My Allocations view ───────────────────────────────────────────────────────
-function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod }) {
+function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAnyAction }) {
   const { data: allocs, loading, reload } = useAsync(
     () => selectedPeriod ? allocApi.list(selectedPeriod, actor.id) : Promise.resolve([]),
     [selectedPeriod, actor.id]
   );
-  const [submitting, setSubmitting] = useState(null); // alloc to submit against
+  const [submitting, setSubmitting] = useState(null);
+  const refresh = () => { reload(); onAnyAction?.(); };
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="t-title">My allocations</h2>
-        <select className="form-select" style={{ width: 200 }} value={selectedPeriod || ""} onChange={e => setSelectedPeriod(e.target.value || null)}>
-          <option value="">Select period…</option>
-          {periods?.filter(p => p.status !== "Closed").map(p => (
-            <option key={p.id} value={p.id}>{p.period_label} ({p.status})</option>
-          ))}
-        </select>
-      </div>
-
-      {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p><p className="empty-body">Choose an open period above to see your allocations.</p></div>}
+      <h2 className="t-title mb-4">My work this period</h2>
+      {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p><p className="empty-body">Choose a period above to see your work.</p></div>}
       {selectedPeriod && loading && <div className="loading-center"><span className="spinner" /></div>}
-      {selectedPeriod && !loading && allocs?.length === 0 && <div className="empty"><p className="empty-title">No allocations yet</p><p className="empty-body">Your allocations for this period haven't been set up yet. Contact your HR team.</p></div>}
+      {selectedPeriod && !loading && allocs?.length === 0 && <div className="empty"><p className="empty-title">Nothing assigned yet</p><p className="empty-body">You don't have any work targets for this period yet. Your manager or HR team will set these up.</p></div>}
       {allocs?.map(a => (
-        <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={reload}
+        <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh}
           onSubmit={setSubmitting} />
       ))}
-      {submitting && <SubmitModal alloc={submitting} onClose={() => setSubmitting(null)} onDone={reload} />}
+      {submitting && <SubmitModal alloc={submitting} onClose={() => setSubmitting(null)} onDone={refresh} />}
     </div>
   );
 }
 
 // ── Team Allocations view (managers / directors / HRBP) ───────────────────────
-function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod }) {
+function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAnyAction }) {
   const { data: allocs, loading, reload } = useAsync(
     () => selectedPeriod ? allocApi.list(selectedPeriod) : Promise.resolve([]),
     [selectedPeriod]
   );
+  const refresh = () => { reload(); onAnyAction?.(); };
 
-  // Filter to only show allocations the actor has a role-assignment for
   const scoped = allocs?.filter(a =>
     actor.roles?.some(r =>
       r.scope_employee_id === a.employee_id || r.scope_employee_id == null
@@ -330,18 +322,12 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod }) 
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="t-title">Team allocations</h2>
-        <select className="form-select" style={{ width: 200 }} value={selectedPeriod || ""} onChange={e => setSelectedPeriod(e.target.value || null)}>
-          <option value="">Select period…</option>
-          {periods?.map(p => <option key={p.id} value={p.id}>{p.period_label} ({p.status})</option>)}
-        </select>
-      </div>
+      <h2 className="t-title mb-4">My team this period</h2>
       {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p></div>}
       {selectedPeriod && loading && <div className="loading-center"><span className="spinner" /></div>}
-      {selectedPeriod && !loading && scoped?.length === 0 && <div className="empty"><p className="empty-title">No team allocations</p><p className="empty-body">No allocations found in your scope for this period.</p></div>}
+      {selectedPeriod && !loading && scoped?.length === 0 && <div className="empty"><p className="empty-title">No one in your scope</p><p className="empty-body">There's no team work for you to act on in this period.</p></div>}
       {scoped?.map(a => (
-        <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={reload} onSubmit={null} />
+        <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh} onSubmit={null} />
       ))}
     </div>
   );
@@ -373,6 +359,87 @@ function FlagsView({ periods, selectedPeriod }) {
   );
 }
 
+// ── Action inbox: computes "what's waiting on you right now" ───────────────────
+function ActionInbox({ allocations, actor, roles, onGoTo }) {
+  if (!allocations) return null;
+
+  const items = [];
+  for (const a of allocations) {
+    const isOwner = a.employee_id === actor?.id;
+    const scoped  = (name) => roles?.some(r => r.role_name === name &&
+      (r.scope_employee_id === a.employee_id || r.scope_employee_id == null));
+    const isLM   = scoped("Line Manager");
+    const isHRBP = scoped("HRBP");
+    const isDir  = scoped("KAD Director");
+    const name   = a.employee_name || a.output_metric;
+
+    // Owner: acknowledge my target
+    if (isOwner && a.target_set_by_id && !a.employee_acknowledged)
+      items.push({ key: `ack-${a.id}`, urgent: true, action: "Acknowledge your target",
+        context: `${a.output_metric} — review and accept the number set for you`, goto: "my" });
+    // Owner: submit work (locked, ready)
+    if (isOwner && a.target_locked === 1)
+      items.push({ key: `sub-${a.id}`, urgent: false, action: "Submit your work",
+        context: `${a.output_metric} — log progress against your target of ${a.target_value}`, goto: "my" });
+    // LM/Dir: set a target
+    if (!a.target_set_by_id && (isLM || isDir) && !isOwner)
+      items.push({ key: `set-${a.id}`, urgent: true, action: `Set a target for ${name}`,
+        context: `${a.output_metric} — no target set yet`, goto: "team" });
+    // HRBP: confirm a target (after employee ack)
+    if (a.target_set_by_id && a.employee_acknowledged && !a.hrbp_confirmation && isHRBP)
+      items.push({ key: `conf-${a.id}`, urgent: true, action: `Confirm ${name}'s target`,
+        context: `${a.output_metric} — employee has acknowledged, awaiting your confirmation`, goto: "team" });
+    // Dir: approve a target
+    if (a.hrbp_confirmation && !a.director_approval && isDir)
+      items.push({ key: `appr-${a.id}`, urgent: true, action: `Approve ${name}'s target`,
+        context: `${a.output_metric} — HRBP confirmed, awaiting your final approval`, goto: "team" });
+    // LM: perform sign-off
+    if (a.target_locked === 1 && !a.signoff_performed && isLM && !isOwner)
+      items.push({ key: `so-${a.id}`, urgent: false, action: `Sign off ${name}'s output`,
+        context: `${a.output_metric} — period work complete, perform sign-off`, goto: "team" });
+    // Dir: confirm sign-off
+    if (a.signoff_performed && !a.director_signoff_confirmation && isDir)
+      items.push({ key: `sod-${a.id}`, urgent: false, action: `Confirm sign-off for ${name}`,
+        context: `${a.output_metric} — sign-off performed, awaiting your confirmation`, goto: "team" });
+    // HRBP: confirm sign-off
+    if (a.signoff_performed && !a.hrbp_signoff_confirmation && isHRBP)
+      items.push({ key: `soh-${a.id}`, urgent: false, action: `Confirm sign-off for ${name}`,
+        context: `${a.output_metric} — sign-off performed, awaiting your confirmation`, goto: "team" });
+  }
+
+  // urgent first
+  items.sort((x, y) => (y.urgent ? 1 : 0) - (x.urgent ? 1 : 0));
+
+  return (
+    <div className="inbox">
+      <div className="inbox-header">
+        <span className="inbox-title">Waiting on you</span>
+        {items.length > 0 && <span className="inbox-count">{items.length}</span>}
+      </div>
+      {items.length === 0 ? (
+        <div className="inbox-empty">
+          <svg className="inbox-empty-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+          </svg>
+          <p style={{ fontWeight: 600 }}>You're all caught up</p>
+          <p className="t-caption" style={{ marginTop: 2 }}>Nothing needs your attention right now.</p>
+        </div>
+      ) : (
+        items.map(it => (
+          <button key={it.key} className="inbox-item" onClick={() => onGoTo?.(it.goto)} style={{ width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: "1px solid var(--border)", cursor: "pointer" }}>
+            <span className={`inbox-item-dot ${it.urgent ? "urgent" : ""}`} />
+            <span className="inbox-item-body">
+              <span className="inbox-item-action">{it.action}</span>
+              <span className="inbox-item-context">{it.context}</span>
+            </span>
+            <span style={{ color: "var(--text-muted)" }}>›</span>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
 // ── StaffDashboard ────────────────────────────────────────────────────────────
 export default function StaffDashboard() {
   const { actor, canSetTargets, canConfirm, canApprove, canSignoff, canConfirmSO } = useAuth();
@@ -381,57 +448,78 @@ export default function StaffDashboard() {
   const { data: periods } = useAsync(() => periodsApi.list());
   const [selectedPeriod, setSelectedPeriod] = useState(null);
 
-  // Derive tab from current URL path
   const pathTab = location.pathname.replace(/^\//, "") || "my";
   const tab = ["my","team","flags"].includes(pathTab) ? pathTab : "my";
   const setTab = (t) => navigate(`/${t}`);
 
-  // Auto-select the first Open period
+  // Auto-select the first Open period (fallback to most recent non-closed)
   useEffect(() => {
     if (periods && !selectedPeriod) {
-      const open = periods.find(p => p.status === "Open");
+      const open = periods.find(p => p.status === "Open")
+                || periods.find(p => p.status !== "Closed");
       if (open) setSelectedPeriod(String(open.id));
     }
   }, [periods, selectedPeriod]);
 
+  const roles = actor?.roles || [];
   const hasRoleActions = canSetTargets() || canConfirm() || canApprove() || canSignoff() || canConfirmSO();
-  const tabs = [
-    ...(hasRoleActions ? [{ id: "team", label: "Team" }] : []),
-    ...(hasRoleActions ? [{ id: "flags", label: "Flags" }] : []),
-  ];
 
-  const nav = (
-    <>
-      <p className="nav-section-label">Work</p>
-      {tabs.map(t => (
-        <button key={t.id} className={`nav-item ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
-          {t.id === "my" ? Icons.allocations : t.id === "team" ? Icons.team : Icons.flags}
-          {t.label}
-        </button>
-      ))}
-      {periods && (
-        <>
-          <p className="nav-section-label" style={{ marginTop: 12 }}>Period</p>
-          {periods.filter(p => p.status !== "Closed").map(p => (
-            <button key={p.id}
-              className={`nav-item ${selectedPeriod === String(p.id) ? "active" : ""}`}
-              onClick={() => setSelectedPeriod(String(p.id))}>
-              {Icons.periods}
-              {p.period_label}
-            </button>
-          ))}
-        </>
-      )}
-    </>
+  // Allocations for the inbox — pull both "mine" and (if a manager) my whole team's
+  const { data: inboxAllocs, reload: reloadInbox } = useAsync(
+    () => selectedPeriod ? allocApi.list(selectedPeriod) : Promise.resolve([]),
+    [selectedPeriod]
   );
 
-  const tabLabel = tabs.find(t => t.id === tab)?.label || "";
+  // Build nav as structured items for AppShell (desktop sidebar + mobile bottom bar)
+  const navItems = [
+    { key: "my", label: "My work", mobileLabel: "My work", icon: Icons.allocations,
+      active: tab === "my", onClick: () => setTab("my") },
+    ...(hasRoleActions ? [
+      { key: "team", label: "My team", mobileLabel: "Team", icon: Icons.team,
+        active: tab === "team", onClick: () => setTab("team") },
+      { key: "flags", label: "Flags", mobileLabel: "Flags", icon: Icons.flags,
+        active: tab === "flags", onClick: () => setTab("flags") },
+    ] : []),
+  ];
+
+  const titleMap = { my: "My work", team: "My team", flags: "Flags" };
 
   return (
-    <AppShell title={tabLabel} nav={nav}>
-      {tab === "my"    && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} />}
-      {tab === "team"  && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} />}
-      {tab === "flags" && <FlagsView periods={periods} selectedPeriod={selectedPeriod} />}
+    <AppShell title={titleMap[tab] || "My work"} navItems={navItems}>
+      {/* Period selector — always visible, plain language */}
+      {periods && periods.length > 0 && (
+        <div className="flex items-center gap-2 mb-4" style={{ flexWrap: "wrap" }}>
+          <span className="t-caption">Period:</span>
+          <select className="form-select" style={{ width: "auto", minWidth: 160 }}
+            value={selectedPeriod || ""} onChange={e => setSelectedPeriod(e.target.value)}>
+            {periods.map(p => (
+              <option key={p.id} value={p.id}>{p.period_label} · {p.status}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Action inbox — only on the home tab */}
+      {tab === "my" && selectedPeriod && (
+        <ActionInbox allocations={inboxAllocs} actor={actor} roles={roles}
+          onGoTo={(t) => setTab(t)} />
+      )}
+
+      {/* No period at all — guided empty state */}
+      {(!periods || periods.length === 0) && (
+        <div className="empty">
+          <p className="empty-title">No active period yet</p>
+          <p className="empty-body">Your administrator will open a performance period once targets are set. Check back soon.</p>
+        </div>
+      )}
+
+      {periods && periods.length > 0 && (
+        <>
+          {tab === "my"    && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
+          {tab === "team"  && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
+          {tab === "flags" && <FlagsView periods={periods} selectedPeriod={selectedPeriod} />}
+        </>
+      )}
     </AppShell>
   );
 }
