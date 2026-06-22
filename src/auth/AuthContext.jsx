@@ -38,7 +38,7 @@ export function AuthProvider({ children }) {
       is_admin:            res.is_admin,
       must_change_password: res.must_change_password,
       ...res.account,
-      roles: [],
+      roles: res.account?.roles || [],
     };
     saveActor(a);
     return a;
