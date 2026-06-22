@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
 import { setup, periods as periodsApi } from "../api/client";
 
@@ -606,9 +607,19 @@ function RoleAssignmentsTab() {
 
 // ── AdminDashboard ────────────────────────────────────────────────────────────
 const TABS = ["KADs","People","Clients","Role Assignments","Projects","Periods","Allocations"];
+const TAB_SLUGS = {
+  "KADs": "kads", "People": "people", "Clients": "clients",
+  "Role Assignments": "role-assignments", "Projects": "projects",
+  "Periods": "periods", "Allocations": "allocations",
+};
+const SLUG_TABS = Object.fromEntries(Object.entries(TAB_SLUGS).map(([k,v]) => [v,k]));
 
 export default function AdminDashboard() {
-  const [tab, setTab] = useState("KADs");
+  const { tab: tabSlug } = useParams();
+  const navigate = useNavigate();
+  const tab = SLUG_TABS[tabSlug] || "KADs";
+  const setTab = (t) => navigate(`/admin/${TAB_SLUGS[t]}`);
+
   const nav = TABS.map(t => (
     <button key={t} className={`nav-item ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
       {Icons.setup}

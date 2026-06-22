@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
 export default function LoginScreen() {
-  const { login } = useAuth();
-  const [accountType, setAccountType] = useState("employee"); // "employee" | "admin"
+  const { login, isAdmin } = useAuth();
+  const navigate = useNavigate();
+  const [accountType, setAccountType] = useState("employee");
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [error, setError]       = useState("");
@@ -14,8 +16,10 @@ export default function LoginScreen() {
     setError("");
     setLoading(true);
     try {
-      await login(email.trim().toLowerCase(), password);
-      // AuthContext → Router handles redirect
+      const actor = await login(email.trim().toLowerCase(), password);
+      if (actor.must_change_password) navigate("/setup-account");
+      else if (actor.is_admin)        navigate("/admin/kads");
+      else                            navigate("/my");
     } catch (err) {
       setError(err.message || "Invalid email or password");
     } finally {

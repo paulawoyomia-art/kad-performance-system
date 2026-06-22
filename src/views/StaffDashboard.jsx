@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
 import { allocations as allocApi, periods as periodsApi, setup, flags as flagsApi } from "../api/client";
@@ -375,8 +376,15 @@ function FlagsView({ periods, selectedPeriod }) {
 // ── StaffDashboard ────────────────────────────────────────────────────────────
 export default function StaffDashboard() {
   const { actor, canSetTargets, canConfirm, canApprove, canSignoff, canConfirmSO } = useAuth();
+  const navigate  = useNavigate();
+  const location  = useLocation();
   const { data: periods } = useAsync(() => periodsApi.list());
   const [selectedPeriod, setSelectedPeriod] = useState(null);
+
+  // Derive tab from current URL path
+  const pathTab = location.pathname.replace(/^\//, "") || "my";
+  const tab = ["my","team","flags"].includes(pathTab) ? pathTab : "my";
+  const setTab = (t) => navigate(`/${t}`);
 
   // Auto-select the first Open period
   useEffect(() => {
@@ -387,11 +395,7 @@ export default function StaffDashboard() {
   }, [periods, selectedPeriod]);
 
   const hasRoleActions = canSetTargets() || canConfirm() || canApprove() || canSignoff() || canConfirmSO();
-
-  // Determine active tab
-  const [tab, setTab] = useState("my");
   const tabs = [
-    { id: "my",    label: "My allocations" },
     ...(hasRoleActions ? [{ id: "team", label: "Team" }] : []),
     ...(hasRoleActions ? [{ id: "flags", label: "Flags" }] : []),
   ];

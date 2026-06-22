@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { auth as authApi } from "../api/client";
 
 export default function FirstLoginSetup() {
-  const { actor, completeSetup } = useAuth();
+  const { actor, completeSetup, isAdmin } = useAuth();
+  const navigate = useNavigate();
   const [newPw, setNewPw]       = useState("");
   const [confirm, setConfirm]   = useState("");
   const [recovery, setRecovery] = useState("");
@@ -22,6 +24,8 @@ export default function FirstLoginSetup() {
     try {
       const res = await authApi.changePassword({ new_password: newPw, recovery_answer: recovery.trim() });
       completeSetup(res.token);
+      if (isAdmin()) navigate("/admin/kads");
+      else           navigate("/my");
     } catch (err) {
       setError(err.message || "Setup failed — please try again");
     } finally {
