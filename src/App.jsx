@@ -36,6 +36,9 @@ function AppRoutes() {
       <Route path="/my"    element={<RequireAuth><StaffDashboard /></RequireAuth>} />
       <Route path="/team"  element={<RequireAuth><StaffDashboard /></RequireAuth>} />
       <Route path="/flags" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+      <Route path="/kad"   element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+      <Route path="/manage" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+      <Route path="/projects" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
 
       {/* Root redirect based on role */}
       <Route path="/" element={
