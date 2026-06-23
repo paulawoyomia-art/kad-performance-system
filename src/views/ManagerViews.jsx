@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   dashboard as dashApi,
   flags as flagsApi,
@@ -172,6 +172,26 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
   const [err, setErr] = useState("");
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
+  // Role-matched output suggestions — a starting menu, not a constraint.
+  // The manager can pick one or type their own ("or add a new one").
+  const OUTPUTS_BY_TYPE = {
+    Field: [
+      ["Sites commissioned", "count"], ["Sites surveyed", "count"],
+      ["Faults resolved", "count"], ["Preventive maintenance visits", "count"],
+      ["Fibre laid", "km"], ["Uptime", "%"],
+    ],
+    Support: [
+      ["Tickets closed", "count"], ["First-response SLA met", "%"],
+      ["Reports delivered", "count"], ["Documentation updated", "count"],
+    ],
+    Management: [
+      ["Projects delivered on time", "%"], ["Team utilisation", "%"],
+      ["Client reviews completed", "count"], ["Revenue collected", "₦"],
+    ],
+  };
+  const selectedPerson = people?.find(p => String(p.id) === String(form.employee_id));
+  const suggestions = selectedPerson ? (OUTPUTS_BY_TYPE[selectedPerson.staff_type] || []) : [];
+
   async function save() {
     setErr("");
     if (!form.employee_id || !form.project_id || !form.period_id || !form.output_metric.trim()) {
@@ -216,7 +236,19 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
       </div>
       <div className="grid-2">
         <div className="form-group"><label className="form-label">Output metric <span>*</span></label>
+          {suggestions.length > 0 && (
+            <div className="flex gap-1 mb-2" style={{ flexWrap: "wrap" }}>
+              {suggestions.map(([m, u]) => (
+                <button key={m} type="button" className="btn btn-ghost btn-sm"
+                  style={{ padding: "2px 8px", fontSize: "0.8em" }}
+                  onClick={() => { f("output_metric", m); f("unit", u); }}>
+                  + {m}
+                </button>
+              ))}
+            </div>
+          )}
           <input className="form-input" value={form.output_metric} onChange={e => f("output_metric", e.target.value)} placeholder="e.g. Sites commissioned" />
+          {selectedPerson && suggestions.length > 0 && <p className="t-caption mt-1">Suggestions for {selectedPerson.staff_type} roles — or type your own.</p>}
         </div>
         <div className="form-group"><label className="form-label">Unit</label>
           <input className="form-input" value={form.unit} onChange={e => f("unit", e.target.value)} placeholder="e.g. count, km, %" />
@@ -241,7 +273,7 @@ export function NewProjectModal({ actor, onClose, onDone }) {
     if (!form.project_name.trim() || !form.client_id) { setErr("Project name and client are required."); return; }
     setSaving(true);
     try {
-      await setup.createProject({
+      await projectsApi.create({
         project_name: form.project_name.trim(), client_id: Number(form.client_id),
         status: form.status, contract_value: form.contract_value ? Number(form.contract_value) : 0,
         project_lead_id: form.project_lead_id ? Number(form.project_lead_id) : null,
@@ -640,13 +672,17 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
   const [err, setErr] = useState("");
   const [queryFor, setQueryFor] = useState(null);   // submission id being queried
   const [queryText, setQueryText] = useState("");
+  const [proofView, setProofView] = useState(null); // { url, name } — open the zoomable viewer
 
   async function viewProof(sub) {
-    if (proofUrls[sub.id]) { window.open(proofUrls[sub.id], "_blank"); return; }
     try {
-      const url = await allocApi.fetchProof(alloc.id, sub.id);
-      setProofUrls(p => ({ ...p, [sub.id]: url }));
-      window.open(url, "_blank");
+      let url = proofUrls[sub.id];
+      if (!url) {
+        url = await allocApi.fetchProof(alloc.id, sub.id);
+        setProofUrls(p => ({ ...p, [sub.id]: url }));
+      }
+      setProofView({ url, name: sub.proof_description || `Proof — ${sub.date_of_activity}`,
+                     isPdf: /\.pdf($|\?)/i.test(sub.proof_key || "") });
     } catch (e) { setErr(e.message); }
   }
   async function doSignoff() {
@@ -741,11 +777,65 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
         );
       })}
       {err && <div className="alert alert-danger mt-2">{err}</div>}
+      {proofView && <ProofViewer proof={proofView} onClose={() => setProofView(null)} />}
     </Modal>
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// Full-resolution proof viewer with zoom + pan, rendered in-app (no new tab).
+function ProofViewer({ proof, onClose }) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef(null);
+
+  const zoomIn  = () => setZoom(z => Math.min(8, +(z + 0.25).toFixed(2)));
+  const zoomOut = () => setZoom(z => Math.max(0.25, +(z - 0.25).toFixed(2)));
+  const reset   = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+
+  function onWheel(e) {
+    e.preventDefault();
+    setZoom(z => Math.min(8, Math.max(0.25, +(z - e.deltaY * 0.001).toFixed(2))));
+  }
+  function onDown(e) { dragRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y }; }
+  function onMove(e) { if (dragRef.current) setPan({ x: e.clientX - dragRef.current.x, y: e.clientY - dragRef.current.y }); }
+  function onUp() { dragRef.current = null; }
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ zIndex: 1000 }}>
+      <div className="modal" style={{ maxWidth: "92vw", width: "92vw", height: "90vh", display: "flex", flexDirection: "column" }}>
+        <div className="modal-header">
+          <h2 className="modal-title" style={{ fontSize: "0.95rem" }}>{proof.name}</h2>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-ghost btn-sm" onClick={zoomOut} title="Zoom out">−</button>
+            <span className="t-caption" style={{ minWidth: 44, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
+            <button className="btn btn-ghost btn-sm" onClick={zoomIn} title="Zoom in">+</button>
+            <button className="btn btn-ghost btn-sm" onClick={reset}>Reset</button>
+            <a className="btn btn-ghost btn-sm" href={proof.url} target="_blank" rel="noreferrer">Open in tab</a>
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={onClose}>✕</button>
+          </div>
+        </div>
+        <div
+          onWheel={onWheel} onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+          style={{ flex: 1, overflow: "hidden", background: "var(--surface-2, #f0f0f0)",
+                   display: "flex", alignItems: "center", justifyContent: "center",
+                   cursor: zoom > 1 ? "grab" : "default", position: "relative" }}>
+          {proof.isPdf ? (
+            <iframe title="proof" src={proof.url} style={{ width: "100%", height: "100%", border: "none" }} />
+          ) : (
+            <img src={proof.url} alt={proof.name} draggable={false}
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                       transformOrigin: "center center", transition: dragRef.current ? "none" : "transform 0.05s",
+                       maxWidth: "100%", maxHeight: "100%", userSelect: "none" }} />
+          )}
+        </div>
+        <div style={{ padding: "8px 12px" }}>
+          <p className="t-caption">Scroll to zoom · drag to pan · or use the controls above.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 // 6. CROSS-KAD RESOURCE VISIBILITY  (capacity only; HRBP/Director/Exec/admin)
 // ════════════════════════════════════════════════════════════════════════════
 function ModeHeader({ mode, setMode, onExport }) {
@@ -790,6 +880,7 @@ export function ResourceVisibility({ selectedPeriod }) {
     [selectedPeriod, mode]
   );
   const [kadFilter, setKadFilter] = useState("");
+  const [showManagers, setShowManagers] = useState(false);
   const [sortBy, setSortBy] = useState("headroom"); // headroom = least committed first
 
   if (loading) return <div className="loading-center"><span className="spinner" /></div>;
@@ -798,7 +889,11 @@ export function ResourceVisibility({ selectedPeriod }) {
   // ── Bench (idle) mode ──
   if (mode === "bench") {
     const kadsB = [...new Set(rows.map(r => r.kad_name))].sort();
-    const viewB = (kadFilter ? rows.filter(r => r.kad_name === kadFilter) : rows);
+    let viewB = (kadFilter ? rows.filter(r => r.kad_name === kadFilter) : rows);
+    // Managers (LM/Director/HRBP/Executive) aren't trackable "bench" resources —
+    // hide them by default so the bench shows people you can actually assign.
+    const managerCount = viewB.filter(r => !!r.is_manager).length;
+    if (!showManagers) viewB = viewB.filter(r => !r.is_manager);
     const neverAssigned = viewB.filter(r => r.bench_status === "Never assigned");
     const workComplete  = viewB.filter(r => r.bench_status === "Work complete");
     return (
@@ -810,9 +905,15 @@ export function ResourceVisibility({ selectedPeriod }) {
             <option value="">All KADs</option>
             {kadsB.map(k => <option key={k} value={k}>{k}</option>)}
           </select>
+          {managerCount > 0 && (
+            <label className="flex items-center gap-2 t-caption" style={{ cursor: "pointer" }}>
+              <input type="checkbox" checked={showManagers} onChange={e => setShowManagers(e.target.checked)} />
+              Show managers ({managerCount})
+            </label>
+          )}
         </div>
         {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p></div>}
-        {selectedPeriod && viewB.length === 0 && <div className="empty"><p className="empty-title">Nobody idle</p><p className="empty-body">Everyone in scope has active project work this period.</p></div>}
+        {selectedPeriod && viewB.length === 0 && <div className="empty"><p className="empty-title">Nobody idle</p><p className="empty-body">Everyone assignable has active project work this period.</p></div>}
 
         {neverAssigned.length > 0 && <h3 className="t-subtitle mb-2">Never assigned ({neverAssigned.length})</h3>}
         {neverAssigned.map(r => <BenchCard key={r.employee_id} r={r} tone="warning" />)}
@@ -892,6 +993,91 @@ export function ResourceVisibility({ selectedPeriod }) {
                   <td>{r.active_allocations}</td>
                   <td>{r.outstanding_pct == null ? "—" : `${Math.round(r.outstanding_pct * 100)}%`}</td>
                   <td>{loadBadge(r)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 7. ORG-WIDE EAGLE-EYE DASHBOARD  (admin + Executive)
+// ════════════════════════════════════════════════════════════════════════════
+export function OrgDashboard({ selectedPeriod }) {
+  const { data, loading } = useAsync(
+    () => dashApi.org(selectedPeriod || null),
+    [selectedPeriod]
+  );
+  if (loading) return <div className="loading-center"><span className="spinner" /></div>;
+  if (!data) return <div className="empty"><p className="empty-title">No data</p></div>;
+  const { org, kads } = data;
+
+  function exportCsv() {
+    const headers = ["KAD", "Headcount", "Active projects", "Allocations", "Locked", "Avg achievement %", "Contract", "Collected", "Collection %", "Open flags"];
+    const lines = [headers.join(",")];
+    for (const k of kads) {
+      lines.push([
+        `"${k.kad_name}"`, k.headcount, k.active_projects, k.allocations, k.locked,
+        k.avg_achievement == null ? "" : Math.round(k.avg_achievement * 100),
+        k.contract_value, k.revenue_collected,
+        k.collection_pct == null ? "" : Math.round(k.collection_pct * 100),
+        k.open_flags,
+      ].join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `org-overview-${selectedPeriod || "all"}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-2" style={{ flexWrap: "wrap", gap: 8 }}>
+        <h2 className="t-title">Organisation overview — all KADs</h2>
+        <button className="btn btn-secondary btn-sm" onClick={exportCsv}>Export CSV</button>
+      </div>
+
+      {/* Org totals */}
+      <div className="tile-grid">
+        <div className="tile"><div className="tile-value">{org.headcount}</div><div className="tile-label">People</div></div>
+        <div className="tile"><div className="tile-value">{org.active_projects}</div><div className="tile-label">Active projects</div></div>
+        <div className="tile"><div className="tile-value">{pct(org.avg_achievement)}</div><div className="tile-label">Avg achievement</div></div>
+        <div className="tile"><div className="tile-value">{pct(org.collection_pct)}</div><div className="tile-label">Collection</div></div>
+        <div className="tile">
+          <div className="tile-value" style={{ color: org.urgent_flags > 0 ? "var(--danger)" : "inherit" }}>{org.open_flags}</div>
+          <div className="tile-label">Open flags{org.urgent_flags > 0 ? ` (${org.urgent_flags} urgent)` : ""}</div>
+        </div>
+      </div>
+
+      <p className="t-caption mt-2 mb-3">Revenue: {money(org.revenue_collected)} collected of {money(org.contract_value)} contracted.</p>
+
+      {/* Per-KAD table */}
+      <h3 className="t-subtitle mb-2">By KAD</h3>
+      <div className="card" style={{ padding: 0 }}>
+        <div className="table-wrap">
+          <table>
+            <thead><tr>
+              <th>KAD</th><th>People</th><th>Projects</th><th>Targets</th>
+              <th>Achievement</th><th>Collection</th><th>Flags</th>
+            </tr></thead>
+            <tbody>
+              {kads.map(k => (
+                <tr key={k.kad_id}>
+                  <td><strong>{k.kad_name}</strong></td>
+                  <td>{k.headcount}</td>
+                  <td>{k.active_projects}</td>
+                  <td>{k.locked}/{k.allocations}</td>
+                  <td>{k.allocations > 0 ? pct(k.avg_achievement) : "—"}</td>
+                  <td>{pct(k.collection_pct)}</td>
+                  <td>
+                    {k.open_flags > 0
+                      ? <span className={`badge ${k.urgent_flags > 0 ? "badge-danger" : "badge-warning"}`}>{k.open_flags}</span>
+                      : <span className="badge badge-success">0</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -136,14 +136,15 @@ function KADsTab() {
         <div className="card" style={{padding:0}}>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Name</th><th>Status</th><th>Headcount</th></tr></thead>
+              <thead><tr><th>Name</th><th>Status</th><th>Headcount</th><th></th></tr></thead>
               <tbody>
-                {kads?.length === 0 && <tr><td colSpan={3}><div className="empty"><p className="empty-title">No KADs yet</p><p className="empty-body">Create your first KAD to get started.</p></div></td></tr>}
+                {kads?.length === 0 && <tr><td colSpan={4}><div className="empty"><p className="empty-title">No KADs yet</p><p className="empty-body">Create your first KAD to get started.</p></div></td></tr>}
                 {kads?.map(k => (
                   <tr key={k.id}>
                     <td><strong>{k.kad_name}</strong></td>
                     <td><StatusBadge status={k.status}/></td>
                     <td>{k.headcount}</td>
+                    <td><button className="btn btn-danger btn-sm" onClick={async()=>{ if(!confirm(`Delete KAD "${k.kad_name}"? Blocked if it has people, clients, or periods.`)) return; try{ await setup.deleteKad(k.id); reload(); }catch(e){ alert(e.message); } }}>Delete</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -219,6 +220,16 @@ function PeopleTab() {
     setNewPw(r.default_password);
   }
 
+  async function deletePerson(p) {
+    if (!confirm(`Delete ${p.full_name}? This cannot be undone.\n\nIf they have any history (allocations, submissions, roles), deletion will be blocked — deactivate them instead.`)) return;
+    try {
+      await setup.deletePerson(p.id);
+      reload();
+    } catch (e) {
+      alert(e.message); // server explains if blocked by dependents
+    }
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -263,23 +274,15 @@ function PeopleTab() {
                     <td>KAD {p.kad_id}</td>
                     <td><StatusBadge status={p.status}/>{p.must_change_password ? <span className="badge badge-warning" style={{marginLeft:4}}>First login</span> : null}</td>
                     <td>
-                      <button
-                        className={`btn btn-sm ${p.is_hr_manager ? "btn-primary" : "btn-secondary"}`}
-                        title={p.is_hr_manager ? "Remove HR Manager privilege" : "Grant HR Manager privilege"}
-                        onClick={async () => {
-                          try {
-                            await setup.updatePerson(p.id, { is_hr_manager: p.is_hr_manager ? 0 : 1 });
-                            reload();
-                          } catch (e) { alert(e.message); }
-                        }}
-                      >
-                        {p.is_hr_manager ? "✓ HR Mgr" : "HR Mgr"}
-                      </button>
+                      {p.is_hr_manager
+                        ? <span className="badge badge-success" title="Granted automatically when a person holds the HRBP role. Manage this via Role Assignments.">HR Manager</span>
+                        : <span className="t-caption" title="HR Manager privilege is granted automatically by assigning the HRBP role in Role Assignments.">—</span>}
                     </td>
                     <td>
                       <div className="flex gap-2">
                         <button className="btn btn-ghost btn-sm" onClick={() => { setEditing({...p}); setErr(""); }}>Edit</button>
-                        <button className="btn btn-ghost btn-sm" onClick={()=>resetPw(p.id)}>Reset PW</button>
+                        <button className="btn btn-ghost btn-sm" onClick={()=>resetPw(p.id)} title="Reset this person's password back to the default so they can log in again">Reset password</button>
+                        <button className="btn btn-danger btn-sm" onClick={()=>deletePerson(p)}>Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -401,10 +404,11 @@ function ClientsTab() {
       </div>
       {loading ? <div className="loading-center"><span className="spinner"/></div> : (
         <div className="card" style={{padding:0}}><div className="table-wrap"><table>
-          <thead><tr><th>Name</th><th>KAD</th><th>Status</th></tr></thead>
+          <thead><tr><th>Name</th><th>KAD</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {clients?.length===0 && <tr><td colSpan={3}><div className="empty"><p className="empty-title">No clients yet</p></div></td></tr>}
-            {clients?.map(c=><tr key={c.id}><td><strong>{c.client_name}</strong></td><td>{c.kad_name}</td><td><StatusBadge status={c.status}/></td></tr>)}
+            {clients?.length===0 && <tr><td colSpan={4}><div className="empty"><p className="empty-title">No clients yet</p></div></td></tr>}
+            {clients?.map(c=><tr key={c.id}><td><strong>{c.client_name}</strong></td><td>{c.kad_name}</td><td><StatusBadge status={c.status}/></td>
+              <td><button className="btn btn-danger btn-sm" onClick={async()=>{ if(!confirm(`Delete client "${c.client_name}"? Blocked if it has projects — deactivate instead.`)) return; try{ await setup.deleteClient(c.id); reload(); }catch(e){ alert(e.message); } }}>Delete</button></td></tr>)}
           </tbody>
         </table></div></div>
       )}
@@ -504,12 +508,21 @@ function PeriodsTab() {
 // ── Projects tab ──────────────────────────────────────────────────────────────
 function ProjectsTab() {
   const { data: clients } = useAsync(() => setup.listClients());
+  const { data: people } = useAsync(() => setup.listPeople());
   const { data: projects, loading, reload } = useAsync(() => setup.listProjects());
+  const [adding, setAdding] = useState(false);
+
+  async function del(p) {
+    if (!confirm(`Delete project "${p.project_name}"? If it has allocations, deletion is blocked — deactivate it instead.`)) return;
+    try { await setup.deleteProject(p.id); reload(); } catch (e) { alert(e.message); }
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <h2 className="t-title">Projects</h2>
         <div className="flex gap-2">
+          <button className="btn btn-primary btn-sm" onClick={()=>setAdding(true)}>+ Add project</button>
           {DownloadTemplate("Projects", setup.projectsTemplate)}
         </div>
       </div>
@@ -519,13 +532,14 @@ function ProjectsTab() {
       </div>
       {loading ? <div className="loading-center"><span className="spinner"/></div> : (
         <div className="card" style={{padding:0}}><div className="table-wrap"><table>
-          <thead><tr><th>Name</th><th>Client</th><th>Status</th><th>Contract</th><th>Collected</th></tr></thead>
+          <thead><tr><th>Name</th><th>Client</th><th>Lead</th><th>Status</th><th>Contract</th><th>Collected</th><th></th></tr></thead>
           <tbody>
-            {projects?.length===0 && <tr><td colSpan={5}><div className="empty"><p className="empty-title">No projects yet</p><p className="empty-body">Import a CSV to bulk-load projects.</p></div></td></tr>}
+            {projects?.length===0 && <tr><td colSpan={7}><div className="empty"><p className="empty-title">No projects yet</p><p className="empty-body">Add one, or import a CSV.</p></div></td></tr>}
             {projects?.map(p=>(
               <tr key={p.id}>
                 <td><strong>{p.project_name}</strong></td>
                 <td>{p.client_name}</td>
+                <td>{p.project_lead_id ? (people?.find(x=>x.id===p.project_lead_id)?.full_name || "—") : <span className="t-caption">—</span>}</td>
                 <td><StatusBadge status={p.status}/></td>
                 <td className="t-mono">₦{(p.contract_value||0).toLocaleString()}</td>
                 <td>
@@ -536,24 +550,78 @@ function ProjectsTab() {
                     <span className="t-mono t-caption">{((p.collection_pct||0)*100).toFixed(0)}%</span>
                   </div>
                 </td>
+                <td><button className="btn btn-danger btn-sm" onClick={()=>del(p)}>Delete</button></td>
               </tr>
             ))}
           </tbody>
         </table></div></div>
       )}
+      {adding && <AddProjectModal clients={clients} people={people}
+        onClose={()=>setAdding(false)} onDone={()=>{setAdding(false);reload();}} />}
     </div>
+  );
+}
+
+function AddProjectModal({ clients, people, onClose, onDone }) {
+  const [form, setForm] = useState({ project_name:"", client_id:"", status:"Active", contract_value:"", project_lead_id:"" });
+  const [err, setErr] = useState(""); const [saving, setSaving] = useState(false);
+  const f = (k,v) => setForm(p=>({...p,[k]:v}));
+  const STATUSES = ["Prospecting","Negotiation","Awarded","Active","Closing","On Hold","Completed"];
+  async function save(){
+    setErr("");
+    if (!form.project_name.trim() || !form.client_id) { setErr("Project name and client are required."); return; }
+    setSaving(true);
+    try {
+      await setup.createProject({ project_name:form.project_name.trim(), client_id:Number(form.client_id),
+        status:form.status, contract_value:form.contract_value?Number(form.contract_value):0,
+        project_lead_id:form.project_lead_id?Number(form.project_lead_id):null });
+      onDone?.();
+    } catch(e){ setErr(e.message); } finally { setSaving(false); }
+  }
+  return (
+    <Modal title="Add project" onClose={onClose}
+      footer={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving||!form.project_name.trim()||!form.client_id}>
+          {saving?<span className="spinner" style={{width:14,height:14}}/>:"Add project"}</button></>}>
+      <div className="form-group"><label className="form-label">Project name <span>*</span></label>
+        <input className="form-input" value={form.project_name} onChange={e=>f("project_name",e.target.value)} placeholder="e.g. MTN Site Rollout Q3"/></div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Client <span>*</span></label>
+          <select className="form-select" value={form.client_id} onChange={e=>f("client_id",e.target.value)}>
+            <option value="">Select…</option>
+            {clients?.map(c=><option key={c.id} value={c.id}>{c.client_name}</option>)}
+          </select></div>
+        <div className="form-group"><label className="form-label">Status</label>
+          <select className="form-select" value={form.status} onChange={e=>f("status",e.target.value)}>
+            {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+          </select></div>
+      </div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Contract value (₦)</label>
+          <input className="form-input" type="number" value={form.contract_value} onChange={e=>f("contract_value",e.target.value)} placeholder="0"/></div>
+        <div className="form-group"><label className="form-label">Project Lead</label>
+          <select className="form-select" value={form.project_lead_id} onChange={e=>f("project_lead_id",e.target.value)}>
+            <option value="">None</option>
+            {people?.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
+          </select></div>
+      </div>
+      {err&&<div className="alert alert-danger">{err}</div>}
+    </Modal>
   );
 }
 
 // ── Allocations tab ───────────────────────────────────────────────────────────
 function AllocationsTab() {
-  const { data: periods, loading: pLoading } = useAsync(() => setup.listPeriods());
-  const reload = useCallback(() => {}, []);
+  const { data: periods, loading: pLoading, reload } = useAsync(() => setup.listPeriods());
+  const [adding, setAdding] = useState(false);
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <h2 className="t-title">Allocations</h2>
-        {DownloadTemplate("Allocations", setup.allocationsTemplate)}
+        <div className="flex gap-2">
+          <button className="btn btn-primary btn-sm" onClick={()=>setAdding(true)}>+ Add allocation</button>
+          {DownloadTemplate("Allocations", setup.allocationsTemplate)}
+        </div>
       </div>
       <div className="alert alert-info" style={{marginBottom:16}}>
         The template is dynamic — download it after creating your period and employees to see live IDs pre-filled.
@@ -572,7 +640,7 @@ function AllocationsTab() {
                 <tbody>{periods?.filter(p=>p.status!=="Closed").map(p=>(
                   <tr key={p.id}>
                     <td><strong>{p.period_label}</strong></td>
-                    <td>{p.kad_name}</td>
+                    <td>{p.kad_name || <span className="t-caption">Org-wide</span>}</td>
                     <td><StatusBadge status={p.status}/></td>
                     <td className="t-mono">{p.allocation_count}</td>
                     <td className="t-mono">{p.locked_count}</td>
@@ -582,7 +650,59 @@ function AllocationsTab() {
           }
         </div>
       )}
+      {adding && <AddAllocationModal onClose={()=>setAdding(false)} onDone={()=>{setAdding(false);reload();}} />}
     </div>
+  );
+}
+
+function AddAllocationModal({ onClose, onDone }) {
+  const { data: people } = useAsync(() => setup.listPeople());
+  const { data: projects } = useAsync(() => setup.listProjects());
+  const { data: periods } = useAsync(() => setup.listPeriods());
+  const [form, setForm] = useState({ employee_id:"", project_id:"", period_id:"", output_metric:"", unit:"" });
+  const [err, setErr] = useState(""); const [saving, setSaving] = useState(false);
+  const f = (k,v) => setForm(p=>({...p,[k]:v}));
+  async function save(){
+    setErr("");
+    if (!form.employee_id||!form.project_id||!form.period_id||!form.output_metric.trim()) { setErr("Employee, project, period and output metric are required."); return; }
+    setSaving(true);
+    try {
+      const r = await setup.createAllocation({ employee_id:Number(form.employee_id), project_id:Number(form.project_id),
+        period_id:Number(form.period_id), output_metric:form.output_metric.trim(), unit:form.unit.trim()||null });
+      if (r.cross_kad) alert("Note: employee's KAD differs from the project's KAD — this was recorded as cross-KAD work and flagged.");
+      onDone?.();
+    } catch(e){ setErr(e.message); } finally { setSaving(false); }
+  }
+  return (
+    <Modal title="Add allocation" onClose={onClose}
+      footer={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving?<span className="spinner" style={{width:14,height:14}}/>:"Add allocation"}</button></>}>
+      <div className="form-group"><label className="form-label">Employee <span>*</span></label>
+        <select className="form-select" value={form.employee_id} onChange={e=>f("employee_id",e.target.value)}>
+          <option value="">Select…</option>
+          {people?.map(p=><option key={p.id} value={p.id}>{p.full_name} ({p.employee_id})</option>)}
+        </select></div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Project <span>*</span></label>
+          <select className="form-select" value={form.project_id} onChange={e=>f("project_id",e.target.value)}>
+            <option value="">Select…</option>
+            {projects?.map(p=><option key={p.id} value={p.id}>{p.project_name}</option>)}
+          </select></div>
+        <div className="form-group"><label className="form-label">Period <span>*</span></label>
+          <select className="form-select" value={form.period_id} onChange={e=>f("period_id",e.target.value)}>
+            <option value="">Select…</option>
+            {periods?.filter(p=>p.status!=="Closed").map(p=><option key={p.id} value={p.id}>{p.period_label}</option>)}
+          </select></div>
+      </div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Output metric <span>*</span></label>
+          <input className="form-input" value={form.output_metric} onChange={e=>f("output_metric",e.target.value)} placeholder="e.g. Sites commissioned"/></div>
+        <div className="form-group"><label className="form-label">Unit</label>
+          <input className="form-input" value={form.unit} onChange={e=>f("unit",e.target.value)} placeholder="count, %, km"/></div>
+      </div>
+      {err&&<div className="alert alert-danger">{err}</div>}
+    </Modal>
   );
 }
 
@@ -592,21 +712,29 @@ function RoleAssignmentsTab() {
   const { data: people }  = useAsync(() => setup.listPeople());
   const { data: ras, loading, reload } = useAsync(() => setup.listRoleAssignments());
   const [creating, setCreating] = useState(false);
-  const [form, setForm]   = useState({person_id:"",role_id:"",scope_employee_id:""});
-  const [err, setErr]     = useState("");
-  const [saving, setSaving] = useState(false);
-  function f(k,v){ setForm(p=>({...p,[k]:v})); }
-
-  async function create(e){ e.preventDefault(); setErr(""); setSaving(true);
-    try{
-      await setup.createRoleAssignment({person_id:Number(form.person_id), role_id:Number(form.role_id), scope_employee_id: form.scope_employee_id ? Number(form.scope_employee_id) : null});
-      setCreating(false); setForm({person_id:"",role_id:"",scope_employee_id:""}); reload();
-    } catch(e){ setErr(e.message); } finally{ setSaving(false); } }
+  const [editingScope, setEditingScope] = useState(null); // {person_id, role_id, person_name, role_name}
 
   async function remove(id){ if(!confirm("Remove this role assignment?")) return;
     try{ await setup.deleteRoleAssignment(id); reload(); } catch(e){ alert(e.message); } }
 
-  const roleDesc = { "KAD Director": "Final approval + sign-off confirmation", "HRBP": "Target confirmation + sign-off confirmation", "Line Manager": "Sets targets + performs sign-off" };
+  const roleDesc = { "KAD Director": "Final approval + sign-off confirmation", "HRBP": "Target confirmation + sign-off confirmation", "Line Manager": "Sets targets + performs sign-off", "Executive": "Org-wide oversight (cross-KAD visibility)" };
+
+  // Group assignment rows by person+role, so a scoped LM with several rows shows
+  // as ONE line ("manages N people") instead of N separate rows.
+  const grouped = {};
+  for (const r of (ras || [])) {
+    const key = `${r.person_id}:${r.role_id}`;
+    if (!grouped[key]) grouped[key] = {
+      person_id: r.person_id, role_id: r.role_id, person_name: r.person_name,
+      employee_id: r.employee_id, role_name: r.role_name,
+      kad_name: r.person_kad_name, rows: [], whole_kad: false, scoped: [],
+    };
+    grouped[key].rows.push(r);
+    if (r.scope_employee_id == null) grouped[key].whole_kad = true;
+    else grouped[key].scoped.push({ name: r.scope_employee_name, code: r.scope_employee_id_str, raId: r.id });
+  }
+  const groups = Object.values(grouped).sort((a,b) =>
+    (a.kad_name||"").localeCompare(b.kad_name||"") || a.person_name.localeCompare(b.person_name));
 
   return (
     <div>
@@ -624,50 +752,190 @@ function RoleAssignmentsTab() {
       </div>
       {loading ? <div className="loading-center"><span className="spinner"/></div> : (
         <div className="card" style={{padding:0}}><div className="table-wrap"><table>
-          <thead><tr><th>Person</th><th>Role</th><th>Scope</th><th></th></tr></thead>
+          <thead><tr><th>Person</th><th>KAD</th><th>Role</th><th>Scope</th><th></th></tr></thead>
           <tbody>
-            {ras?.length===0 && <tr><td colSpan={4}><div className="empty"><p className="empty-title">No assignments yet</p></div></td></tr>}
-            {ras?.map(r=>(
-              <tr key={r.id}>
-                <td><strong>{r.person_name}</strong> <span className="t-caption t-mono">({r.employee_id})</span></td>
-                <td><span className={`badge ${r.role_name==="KAD Director"?"badge-success":r.role_name==="HRBP"?"badge-warning":"badge-info"}`}>{r.role_name}</span></td>
-                <td>{r.scope_employee_name ? <span>{r.scope_employee_name} <span className="t-caption t-mono">({r.scope_employee_id_str})</span></span> : <span className="t-caption">Whole KAD</span>}</td>
-                <td><button className="btn btn-danger btn-sm" onClick={()=>remove(r.id)}>Remove</button></td>
-              </tr>
-            ))}
+            {groups.length===0 && <tr><td colSpan={5}><div className="empty"><p className="empty-title">No assignments yet</p></div></td></tr>}
+            {groups.map(g=>{
+              const isLM = g.role_name === "Line Manager";
+              return (
+                <tr key={`${g.person_id}:${g.role_id}`}>
+                  <td><strong>{g.person_name}</strong> <span className="t-caption t-mono">({g.employee_id})</span></td>
+                  <td><span className="badge badge-neutral">{g.kad_name || "—"}</span></td>
+                  <td><span className={`badge ${g.role_name==="KAD Director"?"badge-success":g.role_name==="HRBP"?"badge-warning":g.role_name==="Executive"?"badge-neutral":"badge-info"}`}>{g.role_name}</span></td>
+                  <td>
+                    {g.whole_kad
+                      ? <span className="t-caption">Whole KAD</span>
+                      : <span className="t-caption">{g.scoped.map(s=>s.name).join(", ") || "—"} <span className="t-mono">({g.scoped.length})</span></span>}
+                  </td>
+                  <td>
+                    <div className="flex gap-2">
+                      {isLM && <button className="btn btn-ghost btn-sm" onClick={()=>setEditingScope({
+                        person_id:g.person_id, role_id:g.role_id, person_name:g.person_name, role_name:g.role_name,
+                        whole_kad:g.whole_kad, scoped:g.scoped.map(s=>s.raId)
+                      })}>Edit scope</button>}
+                      {g.rows.map(r=>(
+                        <button key={r.id} className="btn btn-danger btn-sm" onClick={()=>remove(r.id)}
+                          title={g.rows.length>1?`Remove ${r.scope_employee_name||"whole-KAD"}`:"Remove"}>
+                          Remove{g.rows.length>1 && r.scope_employee_name ? ` ${r.scope_employee_name.split(" ")[0]}` : ""}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table></div></div>
       )}
-      {creating && (
-        <Modal title="Assign role" onClose={()=>{setCreating(false);setErr("");}}
-          footer={<><button className="btn btn-secondary" onClick={()=>setCreating(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={create} disabled={saving||!form.person_id||!form.role_id}>
-              {saving?<span className="spinner" style={{width:14,height:14}}/>:"Assign"}
-            </button></>}>
-          <div className="form-group"><label className="form-label">Person <span>*</span></label>
-            <select className="form-select" value={form.person_id} onChange={e=>f("person_id",e.target.value)}>
-              <option value="">Select person…</option>
-              {people?.map(p=><option key={p.id} value={p.id}>{p.full_name} ({p.employee_id})</option>)}
-            </select>
-          </div>
-          <div className="form-group"><label className="form-label">Role <span>*</span></label>
-            <select className="form-select" value={form.role_id} onChange={e=>f("role_id",e.target.value)}>
-              <option value="">Select role…</option>
-              {roles?.map(r=><option key={r.id} value={r.id}>{r.role_name}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Scope (leave blank for whole-KAD)</label>
-            <select className="form-select" value={form.scope_employee_id} onChange={e=>f("scope_employee_id",e.target.value)}>
-              <option value="">Whole KAD</option>
-              {people?.map(p=><option key={p.id} value={p.id}>{p.full_name} ({p.employee_id})</option>)}
-            </select>
-            <p className="form-hint">Whole-KAD = this person acts in this role for everyone in their KAD.</p>
-          </div>
-          {err&&<div className="alert alert-danger">{err}</div>}
-        </Modal>
-      )}
+      {creating && <AssignRoleModal roles={roles} people={people}
+        onClose={()=>setCreating(false)} onDone={()=>{setCreating(false);reload();}} />}
+      {editingScope && <EditScopeModal target={editingScope}
+        onClose={()=>setEditingScope(null)} onDone={()=>{setEditingScope(null);reload();}} />}
     </div>
+  );
+}
+
+// Assign role — scope picker is KAD-filtered to the selected person, with an
+// explicit Whole-KAD option and multi-select for Line Managers.
+function AssignRoleModal({ roles, people, onClose, onDone }) {
+  const [form, setForm] = useState({ person_id:"", role_id:"", whole_kad:true, employee_ids:[] });
+  const [candidates, setCandidates] = useState([]);
+  const [err, setErr] = useState(""); const [saving, setSaving] = useState(false);
+  const f = (k,v) => setForm(p=>({...p,[k]:v}));
+  const selectedRole = roles?.find(r=>String(r.id)===String(form.role_id));
+  const isLM = selectedRole?.role_name === "Line Manager";
+
+  // When a person is chosen, load only their KAD-mates for the scope picker.
+  async function onPerson(pid){
+    f("person_id", pid); f("employee_ids", []);
+    if (pid) { try { const r = await setup.scopeCandidates(Number(pid)); setCandidates(r.candidates||[]); } catch { setCandidates([]); } }
+    else setCandidates([]);
+  }
+  function toggleEmp(id){ setForm(p=>({...p, employee_ids: p.employee_ids.includes(id) ? p.employee_ids.filter(x=>x!==id) : [...p.employee_ids, id]})); }
+
+  async function save(){
+    setErr("");
+    if (!form.person_id || !form.role_id) { setErr("Person and role are required."); return; }
+    setSaving(true);
+    try {
+      if (isLM && !form.whole_kad) {
+        if (form.employee_ids.length===0) { setErr("Pick at least one employee, or choose Whole KAD."); setSaving(false); return; }
+        await setup.updateScope({ person_id:Number(form.person_id), role_id:Number(form.role_id), whole_kad:false, employee_ids:form.employee_ids });
+      } else {
+        // whole-KAD (Director/HRBP always; LM if chosen)
+        await setup.updateScope({ person_id:Number(form.person_id), role_id:Number(form.role_id), whole_kad:true });
+      }
+      onDone?.();
+    } catch(e){ setErr(e.message); } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="Assign role" onClose={onClose}
+      footer={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving||!form.person_id||!form.role_id}>
+          {saving?<span className="spinner" style={{width:14,height:14}}/>:"Assign"}</button></>}>
+      <div className="form-group"><label className="form-label">Person <span>*</span></label>
+        <select className="form-select" value={form.person_id} onChange={e=>onPerson(e.target.value)}>
+          <option value="">Select person…</option>
+          {people?.map(p=><option key={p.id} value={p.id}>{p.full_name} ({p.employee_id})</option>)}
+        </select>
+      </div>
+      <div className="form-group"><label className="form-label">Role <span>*</span></label>
+        <select className="form-select" value={form.role_id} onChange={e=>f("role_id",e.target.value)}>
+          <option value="">Select role…</option>
+          {roles?.map(r=><option key={r.id} value={r.id}>{r.role_name}</option>)}
+        </select>
+      </div>
+      {isLM ? (
+        <div className="form-group">
+          <label className="form-label">Scope</label>
+          <div className="flex gap-2 mb-2">
+            <button type="button" className={`btn btn-sm ${form.whole_kad?"btn-primary":"btn-secondary"}`} onClick={()=>f("whole_kad",true)}>Whole KAD</button>
+            <button type="button" className={`btn btn-sm ${!form.whole_kad?"btn-primary":"btn-secondary"}`} onClick={()=>f("whole_kad",false)}>Specific people</button>
+          </div>
+          {!form.whole_kad && (
+            <div className="card" style={{padding:10, maxHeight:220, overflowY:"auto"}}>
+              {!form.person_id && <p className="t-caption">Pick a person first.</p>}
+              {form.person_id && candidates.length===0 && <p className="t-caption">No other active people in this KAD.</p>}
+              {candidates.map(c=>(
+                <label key={c.id} className="flex items-center gap-2" style={{padding:"3px 0", cursor:"pointer"}}>
+                  <input type="checkbox" checked={form.employee_ids.includes(c.id)} onChange={()=>toggleEmp(c.id)} />
+                  <span>{c.full_name} <span className="t-caption t-mono">({c.employee_id})</span></span>
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="form-hint">Line Managers can be scoped to specific reports (they change across cycles). Only people in this person's KAD are shown.</p>
+        </div>
+      ) : (
+        <p className="t-caption">{selectedRole ? `${selectedRole.role_name} acts for the whole KAD.` : "Directors and HRBPs act for the whole KAD."}</p>
+      )}
+      {err&&<div className="alert alert-danger">{err}</div>}
+    </Modal>
+  );
+}
+
+// Edit an existing Line Manager's scope (KAD-filtered, multi-select).
+function EditScopeModal({ target, onClose, onDone }) {
+  const [wholeKad, setWholeKad] = useState(!!target.whole_kad);
+  const [candidates, setCandidates] = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(""); const [saving, setSaving] = useState(false);
+
+  // Load the person's KAD-mates + which are currently in scope.
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await setup.scopeCandidates(target.person_id);
+        setCandidates(r.candidates||[]);
+        // current scope: fetch this person's assignments to mark checked
+        const ras = await setup.listRoleAssignments(target.person_id);
+        const current = (ras||[]).filter(x=>x.role_id===target.role_id && x.scope_employee_id!=null).map(x=>x.scope_employee_id);
+        setSelected(current);
+        if (current.length===0) setWholeKad(true);
+      } catch(e){ setErr(e.message); } finally { setLoading(false); }
+    })();
+  }, [target.person_id, target.role_id]);
+
+  function toggle(id){ setSelected(s=> s.includes(id) ? s.filter(x=>x!==id) : [...s, id]); }
+
+  async function save(){
+    setErr("");
+    if (!wholeKad && selected.length===0) { setErr("Pick at least one person, or choose Whole KAD."); return; }
+    setSaving(true);
+    try {
+      await setup.updateScope({ person_id:target.person_id, role_id:target.role_id,
+        whole_kad: wholeKad, employee_ids: wholeKad ? [] : selected });
+      onDone?.();
+    } catch(e){ setErr(e.message); } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title={`Edit scope — ${target.person_name}`} onClose={onClose}
+      footer={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving?<span className="spinner" style={{width:14,height:14}}/>:"Save scope"}</button></>}>
+      <div className="flex gap-2 mb-3">
+        <button type="button" className={`btn btn-sm ${wholeKad?"btn-primary":"btn-secondary"}`} onClick={()=>setWholeKad(true)}>Whole KAD</button>
+        <button type="button" className={`btn btn-sm ${!wholeKad?"btn-primary":"btn-secondary"}`} onClick={()=>setWholeKad(false)}>Specific people</button>
+      </div>
+      {loading ? <div className="loading-center"><span className="spinner"/></div> : (
+        !wholeKad && (
+          <div className="card" style={{padding:10, maxHeight:260, overflowY:"auto"}}>
+            {candidates.length===0 && <p className="t-caption">No other active people in this KAD.</p>}
+            {candidates.map(c=>(
+              <label key={c.id} className="flex items-center gap-2" style={{padding:"3px 0", cursor:"pointer"}}>
+                <input type="checkbox" checked={selected.includes(c.id)} onChange={()=>toggle(c.id)} />
+                <span>{c.full_name} <span className="t-caption t-mono">({c.employee_id})</span></span>
+              </label>
+            ))}
+          </div>
+        )
+      )}
+      {wholeKad && <p className="t-caption">This Line Manager will act for everyone in their KAD.</p>}
+      {err&&<div className="alert alert-danger">{err}</div>}
+    </Modal>
   );
 }
 

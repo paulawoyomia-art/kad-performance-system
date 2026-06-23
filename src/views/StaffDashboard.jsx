@@ -4,7 +4,7 @@ import AppShell, { Icons } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
 import { allocations as allocApi, periods as periodsApi, setup, flags as flagsApi } from "../api/client";
 import { KadDashboard, ManageView, FlagManagement, ProjectWorkspace, SubmissionReview,
-         NewAllocationModal, NewProjectModal, ResourceVisibility } from "./ManagerViews";
+         NewAllocationModal, NewProjectModal, ResourceVisibility, OrgDashboard } from "./ManagerViews";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function useAsync(fn, deps = []) {
@@ -371,29 +371,93 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
   );
   const [quickAlloc, setQuickAlloc] = useState(false);
   const [quickProject, setQuickProject] = useState(false);
+  const [groupMode, setGroupMode] = useState("stage"); // 'stage' | 'person'
   const refresh = () => { reload(); onAnyAction?.(); };
 
-  const scoped = allocs?.filter(a =>
-    actor.roles?.some(r =>
-      r.scope_employee_id === a.employee_id || r.scope_employee_id == null
-    )
-  );
+  // Backend already scopes this read to the manager's KAD/reports (Layer 1),
+  // so we trust it directly rather than re-filtering client-side.
+  const rows = allocs || [];
+
+  // Classify each allocation into a cycle stage for the manager.
+  const stageOf = (a) => {
+    if (a.target_locked) return "locked";
+    if (a.target_value == null || a.target_set_by_id == null) return "needs_target";
+    if (!a.employee_acknowledged) return "awaiting_ack";
+    if (!a.hrbp_confirmation || !a.director_approval) return "awaiting_confirm";
+    return "needs_target";
+  };
+  const STAGES = [
+    { key: "needs_target",     title: "Needs a target",            hint: "Set the number these are measured against." },
+    { key: "awaiting_ack",     title: "Awaiting employee sign-off", hint: "Target set — waiting for the employee to acknowledge." },
+    { key: "awaiting_confirm", title: "Awaiting confirmation",      hint: "Acknowledged — moving through HRBP/Director approval." },
+    { key: "locked",           title: "Locked & in progress",       hint: "Targets locked; work is being tracked." },
+  ];
+  const grouped = {};
+  for (const a of rows) { const s = stageOf(a); (grouped[s] ||= []).push(a); }
+
+  const needsTargetCount = (grouped.needs_target || []).length;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4" style={{ flexWrap: "wrap", gap: 8 }}>
+      <div className="flex justify-between items-center mb-3" style={{ flexWrap: "wrap", gap: 8 }}>
         <h2 className="t-title">My team this period</h2>
         <div className="flex gap-2">
           <button className="btn btn-secondary btn-sm" onClick={() => setQuickAlloc(true)}>+ Allocation</button>
           <button className="btn btn-secondary btn-sm" onClick={() => setQuickProject(true)}>+ Project</button>
         </div>
       </div>
+
       {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p></div>}
       {selectedPeriod && loading && <div className="loading-center"><span className="spinner" /></div>}
-      {selectedPeriod && !loading && scoped?.length === 0 && <div className="empty"><p className="empty-title">No one in your scope</p><p className="empty-body">There's no team work for you to act on in this period.</p></div>}
-      {scoped?.map(a => (
-        <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh} onSubmit={null} />
-      ))}
+      {selectedPeriod && !loading && rows.length === 0 && (
+        <div className="empty"><p className="empty-title">No one in your scope</p>
+          <p className="empty-body">No allocations for your team in this period yet. Use <strong>+ Allocation</strong> to add one, or import them in Admin.</p></div>
+      )}
+
+      {selectedPeriod && !loading && rows.length > 0 && (
+        <>
+          {/* Headline: how many still need targets — the manager's first job */}
+          {needsTargetCount > 0 && (
+            <div className="alert alert-warning mb-3">
+              <strong>{needsTargetCount}</strong> allocation{needsTargetCount === 1 ? "" : "s"} still need a target before this period can be locked and opened.
+            </div>
+          )}
+          <div className="flex gap-2 mb-3" style={{ flexWrap: "wrap" }}>
+            <button className={`btn btn-sm ${groupMode === "stage" ? "btn-primary" : "btn-secondary"}`} onClick={() => setGroupMode("stage")}>By stage</button>
+            <button className={`btn btn-sm ${groupMode === "person" ? "btn-primary" : "btn-secondary"}`} onClick={() => setGroupMode("person")}>By person</button>
+          </div>
+
+          {groupMode === "stage" ? STAGES.map(st => {
+            const list = grouped[st.key] || [];
+            if (list.length === 0) return null;
+            return (
+              <div key={st.key} className="mb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="t-subtitle">{st.title}</h3>
+                  <span className="badge badge-neutral">{list.length}</span>
+                </div>
+                <p className="t-caption mb-2">{st.hint}</p>
+                {list.map(a => <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh} onSubmit={null} />)}
+              </div>
+            );
+          }) : (
+            // By person
+            Object.entries(rows.reduce((acc, a) => { (acc[a.employee_name] ||= []).push(a); return acc; }, {}))
+              .sort((x, y) => x[0].localeCompare(y[0]))
+              .map(([name, list]) => (
+                <div key={name} className="mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="t-subtitle">{name}</h3>
+                    <span className="badge badge-neutral">{list.length}</span>
+                    {list.some(a => stageOf(a) === "needs_target") && <span className="badge badge-warning">needs target</span>}
+                  </div>
+                  {list.map(a => <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh} onSubmit={null} />)}
+                </div>
+              ))
+          )}
+        </>
+      )}
+
       {quickAlloc && <NewAllocationModal actor={actor} defaultPeriod={selectedPeriod}
         onClose={() => setQuickAlloc(false)} onDone={() => { setQuickAlloc(false); refresh(); }} />}
       {quickProject && <NewProjectModal actor={actor}
@@ -527,8 +591,10 @@ export default function StaffDashboard() {
   const isExec      = hasRole("Executive");
   const isOperational = isDirector || isHRBP || isLineMgr || actor?.is_hr_manager;
   const canSeeResources = isHRBP || isDirector || isExec; // cross-KAD capacity view
+  const canSeeKadDash   = isDirector || isHRBP;            // KAD dashboard (HRBP parity)
+  const canSeeOrgDash   = isExec;                          // org-wide eagle-eye (Exec; admin uses admin console)
 
-  const ALL_TABS = ["my","team","flags","kad","manage","projects","resources"];
+  const ALL_TABS = ["my","team","flags","kad","manage","projects","resources","org"];
   const pathTab = location.pathname.replace(/^\//, "") || "my";
   const tab = ALL_TABS.includes(pathTab) ? pathTab : "my";
   const setTab = (t) => navigate(`/${t}`);
@@ -559,9 +625,13 @@ export default function StaffDashboard() {
       { key: "team", label: "My team", mobileLabel: "Team", icon: Icons.team,
         active: tab === "team", onClick: () => setTab("team") },
     ] : []),
-    ...(isDirector ? [
+    ...(canSeeKadDash ? [
       { key: "kad", label: "KAD", mobileLabel: "KAD", icon: Icons.home,
         active: tab === "kad", onClick: () => setTab("kad") },
+    ] : []),
+    ...(canSeeOrgDash ? [
+      { key: "org", label: "Org", mobileLabel: "Org", icon: Icons.home,
+        active: tab === "org", onClick: () => setTab("org") },
     ] : []),
     ...(isOperational ? [
       { key: "projects", label: "Projects", mobileLabel: "Projects", icon: Icons.allocations,
@@ -583,7 +653,7 @@ export default function StaffDashboard() {
 
   const titleMap = { my: "My work", team: "My team", flags: "Flags",
                      kad: "KAD overview", manage: "Manage", projects: "Projects",
-                     resources: "Resource visibility" };
+                     resources: "Resource visibility", org: "Organisation overview" };
 
   return (
     <AppShell title={titleMap[tab] || "My work"} navItems={navItems}>
@@ -623,6 +693,7 @@ export default function StaffDashboard() {
           {tab === "manage" && <ManageView actor={actor} selectedPeriod={selectedPeriod} />}
           {tab === "projects" && <ProjectWorkspace actor={actor} />}
           {tab === "resources" && <ResourceVisibility selectedPeriod={selectedPeriod} />}
+          {tab === "org" && <OrgDashboard selectedPeriod={selectedPeriod} />}
         </>
       )}
     </AppShell>
