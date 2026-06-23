@@ -128,19 +128,14 @@ export const allocations = {
     return req("GET", `/allocations?${params}`);
   },
   create: (body)  => req("POST", "/allocations",                { body }),
-  // Target chain
-  setTarget:      (id, target_value)  => req("POST", `/allocations/${id}/target`,          { body: { target_value } }),
-  acknowledgeTarget: (id)             => req("POST", `/allocations/${id}/target/acknowledge`),
-  confirmTarget:  (id)                => req("POST", `/allocations/${id}/target/confirm`),
-  approveTarget:  (id)                => req("POST", `/allocations/${id}/target/approve`),
-  // Edit workflow
+  // COLLAPSED 2-STATE MODEL — Allocated → Confirmed
+  setTarget:      (id, target_value)  => req("POST", `/allocations/${id}/target`,  { body: { target_value } }), // → Allocated
+  confirm:        (id)                => req("POST", `/allocations/${id}/confirm`),    // → Confirmed (HRBP/Director)
+  unconfirm:      (id)                => req("POST", `/allocations/${id}/unconfirm`),  // → back to Allocated
+  // Edit workflow (still available for changing a locked target)
   requestEdit:    (id, body)          => req("POST", `/allocations/${id}/edits`,            { body }),
   approveEdit:    (editId)            => req("POST", `/edits/${editId}/approve`),
   reconfirmEdit:  (editId)            => req("POST", `/edits/${editId}/reconfirm`),
-  // Sign-off
-  performSignoff:         (id)        => req("POST", `/allocations/${id}/signoff`),
-  confirmSignoffDirector: (id)        => req("POST", `/allocations/${id}/signoff/confirm-director`),
-  confirmSignoffHRBP:     (id)        => req("POST", `/allocations/${id}/signoff/confirm-hrbp`),
   // Submission
   submit: (id, formData)              => req("POST", `/allocations/${id}/submissions`,      { form: formData }),
   // Query
