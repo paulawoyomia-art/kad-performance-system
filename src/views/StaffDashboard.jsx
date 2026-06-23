@@ -4,7 +4,7 @@ import AppShell, { Icons } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
 import { allocations as allocApi, periods as periodsApi, setup, flags as flagsApi } from "../api/client";
 import { KadDashboard, ManageView, FlagManagement, ProjectWorkspace, SubmissionReview,
-         NewAllocationModal, NewProjectModal } from "./ManagerViews";
+         NewAllocationModal, NewProjectModal, ResourceVisibility } from "./ManagerViews";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function useAsync(fn, deps = []) {
@@ -44,6 +44,22 @@ function StatusBadge({ status }) {
     Active: "badge-success", Drafting: "badge-info", Closed: "badge-neutral", Open: "badge-success",
   };
   return <span className={`badge ${map[status] || "badge-neutral"}`}>{status}</span>;
+}
+
+// Richer, employee-facing status from v_allocations.work_status
+function WorkStatusBadge({ status, fallback }) {
+  const s = status || fallback || "Pending";
+  const map = {
+    "Queried": "badge-warning",
+    "Confirmed": "badge-success",
+    "Signed off": "badge-success",
+    "Under review": "badge-info",
+    "Awaiting submission": "badge-neutral",
+    "Target not locked": "badge-neutral",
+    "Pending": "badge-neutral",
+  };
+  const label = { "Target not locked": "Not locked" }[s] || s;
+  return <span className={`badge ${map[s] || "badge-neutral"}`}>{label}</span>;
 }
 
 function Modal({ title, onClose, children, footer }) {
@@ -173,7 +189,7 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
         </div>
         <div className="flex gap-2 items-center">
           {selfApprTarget && <span className="badge badge-warning">Self-approval</span>}
-          <StatusBadge status={alloc.signoff_status || "Pending"} />
+          <WorkStatusBadge status={alloc.work_status} fallback={alloc.signoff_status} />
         </div>
       </div>
 
@@ -198,6 +214,17 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
             <span className="t-caption">Actual: <strong>{alloc.actual_output_rollup}</strong></span>
             <AchievementBar pct={alloc.achievement_pct} />
           </div>
+        </div>
+      )}
+
+      {/* Owner: queried-work banner with a way to read the note + resubmit */}
+      {isOwner && alloc.open_query_count > 0 && (
+        <div className="alert alert-warning" style={{ marginBottom: 10 }}>
+          A manager asked you to revise this work.{" "}
+          <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px" }} onClick={() => setReviewing(true)}>
+            Read the note
+          </button>
+          {" "}then use <strong>Submit output</strong> to send a corrected entry.
         </div>
       )}
 
@@ -419,8 +446,12 @@ function ActionInbox({ allocations, actor, roles, onGoTo }) {
     if (isOwner && a.target_set_by_id && !a.employee_acknowledged)
       items.push({ key: `ack-${a.id}`, urgent: true, action: "Acknowledge your target",
         context: `${a.output_metric} — review and accept the number set for you`, goto: "my" });
-    // Owner: submit work (locked, ready)
-    if (isOwner && a.target_locked === 1)
+    // Owner: a submission was queried — revise it (highest priority for the employee)
+    if (isOwner && a.open_query_count > 0)
+      items.push({ key: `qry-${a.id}`, urgent: true, action: "Your work was queried",
+        context: `${a.output_metric} — a manager asked you to revise. Open it, read the note, and resubmit.`, goto: "my" });
+    // Owner: submit work (locked, ready) — only when nothing is currently queried
+    if (isOwner && a.target_locked === 1 && !(a.open_query_count > 0) && a.signoff_status !== "Confirmed")
       items.push({ key: `sub-${a.id}`, urgent: false, action: "Submit your work",
         context: `${a.output_metric} — log progress against your target of ${a.target_value}`, goto: "my" });
     // LM/Dir: set a target
@@ -493,9 +524,11 @@ export default function StaffDashboard() {
   const isDirector  = hasRole("KAD Director");
   const isHRBP      = hasRole("HRBP");
   const isLineMgr   = hasRole("Line Manager");
+  const isExec      = hasRole("Executive");
   const isOperational = isDirector || isHRBP || isLineMgr || actor?.is_hr_manager;
+  const canSeeResources = isHRBP || isDirector || isExec; // cross-KAD capacity view
 
-  const ALL_TABS = ["my","team","flags","kad","manage","projects"];
+  const ALL_TABS = ["my","team","flags","kad","manage","projects","resources"];
   const pathTab = location.pathname.replace(/^\//, "") || "my";
   const tab = ALL_TABS.includes(pathTab) ? pathTab : "my";
   const setTab = (t) => navigate(`/${t}`);
@@ -538,6 +571,10 @@ export default function StaffDashboard() {
       { key: "flags", label: "Flags", mobileLabel: "Flags", icon: Icons.flags,
         active: tab === "flags", onClick: () => setTab("flags") },
     ] : []),
+    ...(canSeeResources ? [
+      { key: "resources", label: "Resources", mobileLabel: "Resources", icon: Icons.team,
+        active: tab === "resources", onClick: () => setTab("resources") },
+    ] : []),
     ...(isOperational ? [
       { key: "manage", label: "Manage", mobileLabel: "Manage", icon: Icons.setup,
         active: tab === "manage", onClick: () => setTab("manage") },
@@ -545,7 +582,8 @@ export default function StaffDashboard() {
   ];
 
   const titleMap = { my: "My work", team: "My team", flags: "Flags",
-                     kad: "KAD overview", manage: "Manage", projects: "Projects" };
+                     kad: "KAD overview", manage: "Manage", projects: "Projects",
+                     resources: "Resource visibility" };
 
   return (
     <AppShell title={titleMap[tab] || "My work"} navItems={navItems}>
@@ -584,6 +622,7 @@ export default function StaffDashboard() {
           {tab === "kad"   && <KadDashboard selectedPeriod={selectedPeriod} />}
           {tab === "manage" && <ManageView actor={actor} selectedPeriod={selectedPeriod} />}
           {tab === "projects" && <ProjectWorkspace actor={actor} />}
+          {tab === "resources" && <ResourceVisibility selectedPeriod={selectedPeriod} />}
         </>
       )}
     </AppShell>

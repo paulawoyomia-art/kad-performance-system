@@ -7,6 +7,7 @@ import {
   periods as periodsApi,
   projects as projectsApi,
   allocations as allocApi,
+  resources as resourcesApi,
 } from "../api/client";
 
 // ── shared small helpers ──────────────────────────────────────────────────────
@@ -163,7 +164,7 @@ export function ManageView({ actor, selectedPeriod }) {
 }
 
 export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
-  const { data: people } = useAsync(() => setup.listPeople(actor?.kad_id || null), []);
+  const { data: people } = useAsync(() => allocApi.allocatablePeople(actor?.kad_id || null), []);
   const { data: projects } = useAsync(() => projectsApi.list(), []);
   const { data: periods } = useAsync(() => periodsApi.list(), []);
   const [form, setForm] = useState({ employee_id: "", project_id: "", period_id: defaultPeriod || "", output_metric: "", unit: "" });
@@ -227,8 +228,8 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
 }
 
 export function NewProjectModal({ actor, onClose, onDone }) {
-  const { data: clients } = useAsync(() => setup.listClients(actor?.kad_id || null), []);
-  const { data: people } = useAsync(() => setup.listPeople(actor?.kad_id || null), []);
+  const { data: clients } = useAsync(() => allocApi.myClients(actor?.kad_id || null), []);
+  const { data: people } = useAsync(() => allocApi.allocatablePeople(actor?.kad_id || null), []);
   const [form, setForm] = useState({ project_name: "", client_id: "", status: "Prospecting", contract_value: "", project_lead_id: "" });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -298,7 +299,7 @@ export function FlagManagement({ actor, selectedPeriod }) {
     () => selectedPeriod ? flagsApi.list(selectedPeriod) : Promise.resolve([]),
     [selectedPeriod]
   );
-  const { data: people } = useAsync(() => setup.listPeople(actor?.kad_id || null), []);
+  const { data: people } = useAsync(() => allocApi.allocatablePeople(actor?.kad_id || null), []);
   const [managing, setManaging] = useState(null);
 
   const open = flags?.filter(f => f.status !== "Resolved") || [];
@@ -633,11 +634,11 @@ function MilestoneManager({ projectId, milestones, reload }) {
 // 5. SUBMISSION REVIEW  (inspect work + proof before sign-off; raise a query)
 // ════════════════════════════════════════════════════════════════════════════
 export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQueried }) {
-  const { data: subs, loading } = useAsync(() => allocApi.listSubmissions(alloc.id), [alloc.id]);
+  const { data: subs, loading, reload } = useAsync(() => allocApi.listSubmissions(alloc.id), [alloc.id]);
   const [proofUrls, setProofUrls] = useState({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [queryMode, setQueryMode] = useState(false);
+  const [queryFor, setQueryFor] = useState(null);   // submission id being queried
   const [queryText, setQueryText] = useState("");
 
   async function viewProof(sub) {
@@ -653,25 +654,32 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
     try { await allocApi.performSignoff(alloc.id); onSignoff?.(); }
     catch (e) { setErr(e.message); setBusy(false); }
   }
-  async function doQuery() {
-    if (!queryText.trim()) { setErr("Please describe the issue."); return; }
+  async function sendQuery(subId) {
+    if (!queryText.trim()) { setErr("Describe what needs fixing."); return; }
     setErr(""); setBusy(true);
-    try { await allocApi.raiseQuery(alloc.id, queryText.trim()); onQueried?.(); }
-    catch (e) { setErr(e.message); setBusy(false); }
+    try {
+      await allocApi.querySubmission(alloc.id, subId, queryText.trim());
+      setQueryFor(null); setQueryText("");
+      onQueried?.();
+    } catch (e) { setErr(e.message); setBusy(false); }
+  }
+  async function clearQuery(subId) {
+    setBusy(true);
+    try { await allocApi.resolveSubmission(alloc.id, subId); reload(); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
 
   const total = subs?.reduce((s, x) => s + (Number(x.actual_output) || 0), 0) ?? 0;
+  const hasOpenQuery = subs?.some(s => s.query_note && !s.query_resolved_at);
 
   return (
     <Modal title={`Review — ${alloc.output_metric}${alloc.employee_name ? ` · ${alloc.employee_name}` : ""}`} onClose={onClose}
       footer={canSignoff ? <>
-        <button className="btn btn-secondary" onClick={() => setQueryMode(q => !q)} disabled={busy}>
-          {queryMode ? "Cancel query" : "Raise a query"}
-        </button>
-        {!queryMode && <button className="btn btn-primary" onClick={doSignoff} disabled={busy}>
+        <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Close</button>
+        <button className="btn btn-primary" onClick={doSignoff} disabled={busy || hasOpenQuery}
+          title={hasOpenQuery ? "Resolve the open query before signing off" : ""}>
           {busy ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "Sign off"}
-        </button>}
-        {queryMode && <button className="btn btn-primary" onClick={doQuery} disabled={busy}>Send query</button>}
+        </button>
       </> : <button className="btn btn-secondary" onClick={onClose}>Close</button>}>
 
       <div className="flex items-center gap-3 mb-3" style={{ flexWrap: "wrap" }}>
@@ -679,33 +687,217 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
         <span className="t-caption">Total submitted: <strong>{total}</strong></span>
         <span className="t-caption">Achievement: <strong>{pct(alloc.achievement_pct)}</strong></span>
       </div>
-
-      {queryMode && (
-        <div className="form-group">
-          <label className="form-label">What needs fixing?</label>
-          <textarea className="form-textarea" value={queryText} onChange={e => setQueryText(e.target.value)}
-            placeholder="Describe what's wrong or missing — this goes back to the employee." />
-        </div>
+      {hasOpenQuery && canSignoff && (
+        <div className="alert alert-warning mb-3">An open query is awaiting the employee's revision. You can sign off once it's resolved.</div>
       )}
 
       {loading && <div className="loading-center"><span className="spinner" /></div>}
       {!loading && subs?.length === 0 && <p className="t-caption">No submissions yet for this allocation.</p>}
-      {subs?.map(s => (
-        <div key={s.id} className="card" style={{ marginBottom: 8 }}>
-          <div className="flex justify-between items-center">
-            <strong>{s.actual_output} {alloc.unit || ""}</strong>
-            <span className="t-caption">{s.date_of_activity}</span>
+      {subs?.map(s => {
+        const open = s.query_note && !s.query_resolved_at;
+        return (
+          <div key={s.id} className="card" style={{ marginBottom: 8, borderLeft: open ? "3px solid var(--warning)" : undefined }}>
+            <div className="flex justify-between items-center">
+              <strong>{s.actual_output} {alloc.unit || ""}</strong>
+              <span className="t-caption">{s.date_of_activity}</span>
+            </div>
+            {s.output_narrative && <p className="t-caption mt-1">{s.output_narrative}</p>}
+            {s.blockers && <p className="t-caption mt-1" style={{ color: "var(--warning)" }}>Blockers: {s.blockers}</p>}
+
+            {/* Existing query on this submission */}
+            {s.query_note && (
+              <div className="mt-2" style={{ padding: 8, background: "var(--surface-2, #f5f5f5)", borderRadius: 6 }}>
+                <p className="t-caption" style={{ fontWeight: 600 }}>
+                  {open ? "Queried" : "Query (resolved)"}{s.queried_by_name ? ` by ${s.queried_by_name}` : ""}
+                </p>
+                <p className="t-caption">"{s.query_note}"</p>
+                {s.revised_at && <p className="t-caption" style={{ color: "var(--success)" }}>Revised by a later entry.</p>}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 mt-2" style={{ flexWrap: "wrap" }}>
+              {s.submitted_by_name && <span className="t-caption">by {s.submitted_by_name}</span>}
+              {s.proof_key && <button className="btn btn-ghost btn-sm" onClick={() => viewProof(s)}>View proof</button>}
+              {canSignoff && !open && queryFor !== s.id && (
+                <button className="btn btn-ghost btn-sm" onClick={() => { setQueryFor(s.id); setQueryText(""); }}>Query this entry</button>
+              )}
+              {canSignoff && open && (
+                <button className="btn btn-ghost btn-sm" onClick={() => clearQuery(s.id)} disabled={busy}>Mark resolved</button>
+              )}
+            </div>
+
+            {/* Inline query composer for this submission */}
+            {queryFor === s.id && (
+              <div className="mt-2">
+                <textarea className="form-textarea" value={queryText} onChange={e => setQueryText(e.target.value)}
+                  placeholder="What's wrong with this entry? This goes to the employee to revise." />
+                <div className="flex gap-2 mt-1">
+                  <button className="btn btn-primary btn-sm" onClick={() => sendQuery(s.id)} disabled={busy || !queryText.trim()}>Send query</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setQueryFor(null)}>Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
-          {s.output_narrative && <p className="t-caption mt-1">{s.output_narrative}</p>}
-          {s.blockers && <p className="t-caption mt-1" style={{ color: "var(--warning)" }}>Blockers: {s.blockers}</p>}
-          <div className="flex items-center gap-2 mt-2" style={{ flexWrap: "wrap" }}>
-            {s.submitted_by_name && <span className="t-caption">by {s.submitted_by_name}</span>}
-            {s.proof_key && <button className="btn btn-ghost btn-sm" onClick={() => viewProof(s)}>View proof</button>}
-          </div>
-          {s.proof_description && <p className="t-caption mt-1" style={{ fontStyle: "italic" }}>{s.proof_description}</p>}
-        </div>
-      ))}
+        );
+      })}
       {err && <div className="alert alert-danger mt-2">{err}</div>}
     </Modal>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 6. CROSS-KAD RESOURCE VISIBILITY  (capacity only; HRBP/Director/Exec/admin)
+// ════════════════════════════════════════════════════════════════════════════
+function ModeHeader({ mode, setMode, onExport }) {
+  return (
+    <div className="flex justify-between items-center mb-2" style={{ flexWrap: "wrap", gap: 8 }}>
+      <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
+        <h2 className="t-title" style={{ marginRight: 8 }}>Resources</h2>
+        <button className={`btn btn-sm ${mode === "loaded" ? "btn-primary" : "btn-secondary"}`} onClick={() => setMode("loaded")}>Loaded</button>
+        <button className={`btn btn-sm ${mode === "bench" ? "btn-primary" : "btn-secondary"}`} onClick={() => setMode("bench")}>Idle bench</button>
+      </div>
+      {onExport && <button className="btn btn-secondary btn-sm" onClick={onExport}>Export CSV</button>}
+    </div>
+  );
+}
+
+function BenchCard({ r, tone }) {
+  return (
+    <div className="card" style={{ marginBottom: 8, borderLeft: `3px solid var(--${tone === "success" ? "success" : "warning"})` }}>
+      <div className="flex justify-between items-center" style={{ flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <strong>{r.full_name}</strong>
+          <span className="t-caption" style={{ marginLeft: 6 }}>{r.designation}</span>
+        </div>
+        <div className="flex gap-2 items-center">
+          <span className="badge badge-neutral">{r.kad_name}</span>
+          <span className={`badge ${tone === "success" ? "badge-success" : "badge-warning"}`}>{r.bench_status}</span>
+        </div>
+      </div>
+      {r.bench_status === "Work complete" && (
+        <p className="t-caption mt-1">{r.alloc_count} allocation{r.alloc_count === 1 ? "" : "s"} this period, all signed off.</p>
+      )}
+    </div>
+  );
+}
+
+export function ResourceVisibility({ selectedPeriod }) {
+  const [mode, setMode] = useState("loaded"); // 'loaded' | 'bench'
+  const { data: rows, loading } = useAsync(
+    () => selectedPeriod
+      ? (mode === "bench" ? resourcesApi.bench(selectedPeriod) : resourcesApi.list(selectedPeriod))
+      : Promise.resolve([]),
+    [selectedPeriod, mode]
+  );
+  const [kadFilter, setKadFilter] = useState("");
+  const [sortBy, setSortBy] = useState("headroom"); // headroom = least committed first
+
+  if (loading) return <div className="loading-center"><span className="spinner" /></div>;
+  if (!rows) return <div className="empty"><p className="empty-title">No data</p></div>;
+
+  // ── Bench (idle) mode ──
+  if (mode === "bench") {
+    const kadsB = [...new Set(rows.map(r => r.kad_name))].sort();
+    const viewB = (kadFilter ? rows.filter(r => r.kad_name === kadFilter) : rows);
+    const neverAssigned = viewB.filter(r => r.bench_status === "Never assigned");
+    const workComplete  = viewB.filter(r => r.bench_status === "Work complete");
+    return (
+      <div>
+        <ModeHeader mode={mode} setMode={setMode} />
+        <p className="t-caption mb-3">People with no in-flight project work this period — your assignable bench.</p>
+        <div className="flex items-center gap-2 mb-3" style={{ flexWrap: "wrap" }}>
+          <select className="form-select" style={{ width: "auto" }} value={kadFilter} onChange={e => setKadFilter(e.target.value)}>
+            <option value="">All KADs</option>
+            {kadsB.map(k => <option key={k} value={k}>{k}</option>)}
+          </select>
+        </div>
+        {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p></div>}
+        {selectedPeriod && viewB.length === 0 && <div className="empty"><p className="empty-title">Nobody idle</p><p className="empty-body">Everyone in scope has active project work this period.</p></div>}
+
+        {neverAssigned.length > 0 && <h3 className="t-subtitle mb-2">Never assigned ({neverAssigned.length})</h3>}
+        {neverAssigned.map(r => <BenchCard key={r.employee_id} r={r} tone="warning" />)}
+
+        {workComplete.length > 0 && <h3 className="t-subtitle mt-4 mb-2">Work complete — now free ({workComplete.length})</h3>}
+        {workComplete.map(r => <BenchCard key={r.employee_id} r={r} tone="success" />)}
+      </div>
+    );
+  }
+
+  const kads = [...new Set(rows.map(r => r.kad_name))].sort();
+  let view = kadFilter ? rows.filter(r => r.kad_name === kadFilter) : rows;
+  view = [...view].sort((a, b) => {
+    if (sortBy === "headroom") return (a.active_allocations - b.active_allocations) || (a.outstanding_pct - b.outstanding_pct);
+    if (sortBy === "load") return (b.active_allocations - a.active_allocations);
+    return a.full_name.localeCompare(b.full_name);
+  });
+
+  function exportCsv() {
+    const headers = ["Name", "KAD", "Role", "Total allocations", "Active commitments", "Outstanding %"];
+    const lines = [headers.join(",")];
+    for (const r of view) {
+      lines.push([
+        `"${r.full_name}"`, `"${r.kad_name}"`, `"${r.designation}"`,
+        r.total_allocations, r.active_allocations,
+        r.outstanding_pct == null ? "" : Math.round(r.outstanding_pct * 100),
+      ].join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `resource-load-${selectedPeriod || "all"}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  }
+
+  function loadBadge(r) {
+    // simple capacity signal: 0 active = free, 1-2 = some, 3+ = heavy
+    if (r.active_allocations === 0) return <span className="badge badge-success">Headroom</span>;
+    if (r.active_allocations <= 2) return <span className="badge badge-info">Some load</span>;
+    return <span className="badge badge-warning">Heavy</span>;
+  }
+
+  return (
+    <div>
+      <ModeHeader mode={mode} setMode={setMode} onExport={exportCsv} />
+      <p className="t-caption mb-3">Capacity across the organisation for cross-KAD resource planning. Shows load only — not performance detail.</p>
+
+      <div className="flex items-center gap-2 mb-3" style={{ flexWrap: "wrap" }}>
+        <select className="form-select" style={{ width: "auto" }} value={kadFilter} onChange={e => setKadFilter(e.target.value)}>
+          <option value="">All KADs</option>
+          {kads.map(k => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <select className="form-select" style={{ width: "auto" }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
+          <option value="headroom">Most headroom first</option>
+          <option value="load">Heaviest load first</option>
+          <option value="name">Name</option>
+        </select>
+      </div>
+
+      {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p></div>}
+      {selectedPeriod && view.length === 0 && <div className="empty"><p className="empty-body">No active resources in scope.</p></div>}
+
+      <div className="card" style={{ padding: 0 }}>
+        <div className="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Name</th><th>KAD</th><th>Role</th>
+              <th>Allocations</th><th>Active</th><th>Outstanding</th><th>Capacity</th>
+            </tr></thead>
+            <tbody>
+              {view.map(r => (
+                <tr key={`${r.employee_id}-${r.period_id}`}>
+                  <td><strong>{r.full_name}</strong></td>
+                  <td><span className="t-caption">{r.kad_name}</span></td>
+                  <td><span className="t-caption">{r.designation}</span></td>
+                  <td>{r.total_allocations}</td>
+                  <td>{r.active_allocations}</td>
+                  <td>{r.outstanding_pct == null ? "—" : `${Math.round(r.outstanding_pct * 100)}%`}</td>
+                  <td>{loadBadge(r)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }
