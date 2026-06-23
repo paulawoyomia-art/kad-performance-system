@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
 import { allocations as allocApi, periods as periodsApi, setup, flags as flagsApi } from "../api/client";
+import { KadDashboard, ManageView, FlagManagement, ProjectWorkspace, SubmissionReview,
+         NewAllocationModal, NewProjectModal } from "./ManagerViews";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function useAsync(fn, deps = []) {
@@ -134,6 +136,7 @@ function SubmitModal({ alloc, onClose, onDone }) {
 function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
   const [actionErr, setActionErr] = useState("");
   const [busy, setBusy]           = useState(false);
+  const [reviewing, setReviewing] = useState(false);
 
   const isOwner   = alloc.employee_id === actor?.id;
   const isLM      = roles?.some(r => r.role_name === "Line Manager" &&
@@ -160,7 +163,12 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
     <div className="card" style={{ marginBottom: 12 }}>
       <div className="flex justify-between items-center" style={{ marginBottom: 10 }}>
         <div>
-          <span style={{ fontWeight: 600 }}>{alloc.output_metric}</span>
+          {alloc.employee_name && !isOwner && (
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>{alloc.employee_name}</div>
+          )}
+          <span style={{ fontWeight: 600, color: alloc.employee_name && !isOwner ? "var(--text-secondary)" : "inherit" }}>
+            {alloc.output_metric}
+          </span>
           {alloc.unit && <span className="t-caption" style={{ marginLeft: 6 }}>({alloc.unit})</span>}
         </div>
         <div className="flex gap-2 items-center">
@@ -197,7 +205,9 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
       <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
         {/* ① Set target */}
         {!alloc.target_set_by_id && (isLM || isDir) && (
-          <SetTargetButton allocId={alloc.id} onDone={() => { onAction?.(); }} />
+          <SetTargetButton allocId={alloc.id}
+            who={alloc.employee_name} metric={alloc.output_metric} unit={alloc.unit}
+            onDone={() => { onAction?.(); }} />
         )}
         {/* ② Employee acknowledge — only the owner, only after target is set */}
         {alloc.target_set_by_id && !alloc.employee_acknowledged && isOwner && (
@@ -220,7 +230,7 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
           </button>
         )}
         {/* ④ Director approve */}
-        {alloc.hrbp_confirmation && !alloc.director_approval && isDir && (
+        {!!alloc.hrbp_confirmation && !alloc.director_approval && isDir && (
           <button className="btn btn-secondary btn-sm" disabled={busy}
             onClick={() => act(() => allocApi.approveTarget(alloc.id), "Approve")}>
             Approve target
@@ -232,20 +242,25 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
             + Submit output
           </button>
         )}
-        {/* Sign-off */}
-        {locked && !alloc.signoff_performed && isLM && (
-          <button className="btn btn-secondary btn-sm" disabled={busy}
-            onClick={() => act(() => allocApi.performSignoff(alloc.id), "Sign off")}>
-            Perform sign-off
+        {/* Review work — managers can inspect submissions + proof anytime once locked */}
+        {locked && !isOwner && (isLM || isHRBP || isDir) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => setReviewing(true)}>
+            Review work
           </button>
         )}
-        {alloc.signoff_performed && !alloc.director_signoff_confirmation && isDir && (
+        {/* Sign-off — now goes through the review screen (inspect before signing) */}
+        {locked && !alloc.signoff_performed && isLM && (
+          <button className="btn btn-secondary btn-sm" onClick={() => setReviewing(true)}>
+            Review &amp; sign off
+          </button>
+        )}
+        {!!alloc.signoff_performed && !alloc.director_signoff_confirmation && isDir && (
           <button className="btn btn-secondary btn-sm" disabled={busy}
             onClick={() => act(() => allocApi.confirmSignoffDirector(alloc.id), "Confirm SO")}>
             Confirm sign-off
           </button>
         )}
-        {alloc.signoff_performed && !alloc.hrbp_signoff_confirmation && isHRBP && (
+        {!!alloc.signoff_performed && !alloc.hrbp_signoff_confirmation && isHRBP && (
           <button className="btn btn-secondary btn-sm" disabled={busy}
             onClick={() => act(() => allocApi.confirmSignoffHRBP(alloc.id), "Confirm SO")}>
             Confirm sign-off
@@ -253,11 +268,17 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
         )}
       </div>
       {actionErr && <p className="form-error" style={{ marginTop: 8 }}>{actionErr}</p>}
+      {reviewing && (
+        <SubmissionReview alloc={alloc} canSignoff={isLM && !alloc.signoff_performed}
+          onClose={() => setReviewing(false)}
+          onSignoff={() => { setReviewing(false); onAction?.(); }}
+          onQueried={() => { setReviewing(false); onAction?.(); }} />
+      )}
     </div>
   );
 }
 
-function SetTargetButton({ allocId, onDone }) {
+function SetTargetButton({ allocId, who, metric, unit, onDone }) {
   const [open, setOpen]   = useState(false);
   const [val, setVal]     = useState("");
   const [saving, setSaving] = useState(false);
@@ -271,13 +292,22 @@ function SetTargetButton({ allocId, onDone }) {
   }
   if (!open) return <button className="btn btn-primary btn-sm" onClick={() => setOpen(true)}>Set target</button>;
   return (
-    <form onSubmit={save} className="flex gap-2 items-center">
-      <input className="form-input" type="number" min="0" step="any" value={val} onChange={e => setVal(e.target.value)} placeholder="Target value" style={{ width: 120 }} autoFocus />
-      <button className="btn btn-primary btn-sm" type="submit" disabled={saving || !val}>
-        {saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "Save"}
-      </button>
-      <button className="btn btn-secondary btn-sm" type="button" onClick={() => { setOpen(false); setErr(""); }}>✕</button>
-      {err && <span className="form-error">{err}</span>}
+    <form onSubmit={save} style={{ width: "100%" }}>
+      {who && (
+        <p className="t-caption" style={{ marginBottom: 6 }}>
+          Setting target for <strong>{who}</strong> — {metric}{unit ? ` (${unit})` : ""}
+        </p>
+      )}
+      <div className="flex gap-2 items-center">
+        <input className="form-input" type="number" min="0" step="any" value={val}
+          onChange={e => setVal(e.target.value)} placeholder={`Target${unit ? ` in ${unit}` : ""}`}
+          style={{ width: 140 }} autoFocus />
+        <button className="btn btn-primary btn-sm" type="submit" disabled={saving || !val}>
+          {saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "Save"}
+        </button>
+        <button className="btn btn-secondary btn-sm" type="button" onClick={() => { setOpen(false); setErr(""); }}>✕</button>
+      </div>
+      {err && <span className="form-error" style={{ display: "block", marginTop: 6 }}>{err}</span>}
     </form>
   );
 }
@@ -312,6 +342,8 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
     () => selectedPeriod ? allocApi.list(selectedPeriod) : Promise.resolve([]),
     [selectedPeriod]
   );
+  const [quickAlloc, setQuickAlloc] = useState(false);
+  const [quickProject, setQuickProject] = useState(false);
   const refresh = () => { reload(); onAnyAction?.(); };
 
   const scoped = allocs?.filter(a =>
@@ -322,13 +354,23 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
 
   return (
     <div>
-      <h2 className="t-title mb-4">My team this period</h2>
+      <div className="flex justify-between items-center mb-4" style={{ flexWrap: "wrap", gap: 8 }}>
+        <h2 className="t-title">My team this period</h2>
+        <div className="flex gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={() => setQuickAlloc(true)}>+ Allocation</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setQuickProject(true)}>+ Project</button>
+        </div>
+      </div>
       {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p></div>}
       {selectedPeriod && loading && <div className="loading-center"><span className="spinner" /></div>}
       {selectedPeriod && !loading && scoped?.length === 0 && <div className="empty"><p className="empty-title">No one in your scope</p><p className="empty-body">There's no team work for you to act on in this period.</p></div>}
       {scoped?.map(a => (
         <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh} onSubmit={null} />
       ))}
+      {quickAlloc && <NewAllocationModal actor={actor} defaultPeriod={selectedPeriod}
+        onClose={() => setQuickAlloc(false)} onDone={() => { setQuickAlloc(false); refresh(); }} />}
+      {quickProject && <NewProjectModal actor={actor}
+        onClose={() => setQuickProject(false)} onDone={() => setQuickProject(false)} />}
     </div>
   );
 }
@@ -442,14 +484,20 @@ function ActionInbox({ allocations, actor, roles, onGoTo }) {
 
 // ── StaffDashboard ────────────────────────────────────────────────────────────
 export default function StaffDashboard() {
-  const { actor, canSetTargets, canConfirm, canApprove, canSignoff, canConfirmSO } = useAuth();
+  const { actor, canSetTargets, canConfirm, canApprove, canSignoff, canConfirmSO, hasRole } = useAuth();
   const navigate  = useNavigate();
   const location  = useLocation();
   const { data: periods } = useAsync(() => periodsApi.list());
   const [selectedPeriod, setSelectedPeriod] = useState(null);
 
+  const isDirector  = hasRole("KAD Director");
+  const isHRBP      = hasRole("HRBP");
+  const isLineMgr   = hasRole("Line Manager");
+  const isOperational = isDirector || isHRBP || isLineMgr || actor?.is_hr_manager;
+
+  const ALL_TABS = ["my","team","flags","kad","manage","projects"];
   const pathTab = location.pathname.replace(/^\//, "") || "my";
-  const tab = ["my","team","flags"].includes(pathTab) ? pathTab : "my";
+  const tab = ALL_TABS.includes(pathTab) ? pathTab : "my";
   const setTab = (t) => navigate(`/${t}`);
 
   // Auto-select the first Open period (fallback to most recent non-closed)
@@ -477,12 +525,27 @@ export default function StaffDashboard() {
     ...(hasRoleActions ? [
       { key: "team", label: "My team", mobileLabel: "Team", icon: Icons.team,
         active: tab === "team", onClick: () => setTab("team") },
+    ] : []),
+    ...(isDirector ? [
+      { key: "kad", label: "KAD", mobileLabel: "KAD", icon: Icons.home,
+        active: tab === "kad", onClick: () => setTab("kad") },
+    ] : []),
+    ...(isOperational ? [
+      { key: "projects", label: "Projects", mobileLabel: "Projects", icon: Icons.allocations,
+        active: tab === "projects", onClick: () => setTab("projects") },
+    ] : []),
+    ...(hasRoleActions ? [
       { key: "flags", label: "Flags", mobileLabel: "Flags", icon: Icons.flags,
         active: tab === "flags", onClick: () => setTab("flags") },
     ] : []),
+    ...(isOperational ? [
+      { key: "manage", label: "Manage", mobileLabel: "Manage", icon: Icons.setup,
+        active: tab === "manage", onClick: () => setTab("manage") },
+    ] : []),
   ];
 
-  const titleMap = { my: "My work", team: "My team", flags: "Flags" };
+  const titleMap = { my: "My work", team: "My team", flags: "Flags",
+                     kad: "KAD overview", manage: "Manage", projects: "Projects" };
 
   return (
     <AppShell title={titleMap[tab] || "My work"} navItems={navItems}>
@@ -517,7 +580,10 @@ export default function StaffDashboard() {
         <>
           {tab === "my"    && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "team"  && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
-          {tab === "flags" && <FlagsView periods={periods} selectedPeriod={selectedPeriod} />}
+          {tab === "flags" && <FlagManagement actor={actor} selectedPeriod={selectedPeriod} />}
+          {tab === "kad"   && <KadDashboard selectedPeriod={selectedPeriod} />}
+          {tab === "manage" && <ManageView actor={actor} selectedPeriod={selectedPeriod} />}
+          {tab === "projects" && <ProjectWorkspace actor={actor} />}
         </>
       )}
     </AppShell>
