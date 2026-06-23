@@ -136,6 +136,19 @@ export const allocations = {
   submit: (id, formData)              => req("POST", `/allocations/${id}/submissions`,      { form: formData }),
   // Query
   raiseQuery: (id, remarks)           => req("POST", `/allocations/${id}/query`,            { body: { remarks } }),
+  // Optional SLA link
+  linkSla: (id, sla_id)               => req("POST", `/allocations/${id}/sla`,              { body: { sla_id } }),
+  // Submission review (before sign-off)
+  listSubmissions: (id)               => req("GET", `/allocations/${id}/submissions`),
+  // Proof needs auth, so fetch as a blob and return an object URL the UI can show/open
+  fetchProof: async (id, subId) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/allocations/${id}/submissions/${subId}/proof`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new Error("Could not load proof");
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  },
 };
 
 // ── flags ────────────────────────────────────────────────────────────────────
@@ -146,4 +159,23 @@ export const flags = {
     if (severity) params.set("severity", severity);
     return req("GET", `/flags?${params}`);
   },
+  manage: (id, body) => req("PATCH", `/flags/${id}`, { body }),
+};
+
+// ── dashboard ────────────────────────────────────────────────────────────────
+export const dashboard = {
+  kad: (periodId) => req("GET", `/dashboard/kad${periodId ? `?period=${periodId}` : ""}`),
+};
+
+// ── projects: management, SLAs, milestones ───────────────────────────────────
+export const projectMgmt = {
+  manage:        (id, body)      => req("PATCH", `/projects/${id}/manage`,      { body }),
+  listSlas:      (id)            => req("GET",   `/projects/${id}/slas`),
+  createSla:     (id, body)      => req("POST",  `/projects/${id}/slas`,        { body }),
+  updateSla:     (slaId, body)   => req("PATCH", `/slas/${slaId}`,              { body }),
+  deleteSla:     (slaId)         => req("DELETE",`/slas/${slaId}`),
+  listMilestones:(id)            => req("GET",   `/projects/${id}/milestones`),
+  createMilestone:(id, body)     => req("POST",  `/projects/${id}/milestones`,  { body }),
+  updateMilestone:(msId, body)   => req("PATCH", `/milestones/${msId}`,         { body }),
+  deleteMilestone:(msId)         => req("DELETE",`/milestones/${msId}`),
 };
