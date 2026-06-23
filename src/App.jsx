@@ -40,6 +40,7 @@ function AppRoutes() {
       <Route path="/manage" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
       <Route path="/projects" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
       <Route path="/resources" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+      <Route path="/org" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
 
       {/* Root redirect based on role */}
       <Route path="/" element={
