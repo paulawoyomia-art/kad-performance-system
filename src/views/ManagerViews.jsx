@@ -687,7 +687,7 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
   }
   async function doSignoff() {
     setErr(""); setBusy(true);
-    try { await allocApi.performSignoff(alloc.id); onSignoff?.(); }
+    try { await allocApi.confirm(alloc.id); onSignoff?.(); }
     catch (e) { setErr(e.message); setBusy(false); }
   }
   async function sendQuery(subId) {
@@ -713,8 +713,8 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
       footer={canSignoff ? <>
         <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Close</button>
         <button className="btn btn-primary" onClick={doSignoff} disabled={busy || hasOpenQuery}
-          title={hasOpenQuery ? "Resolve the open query before signing off" : ""}>
-          {busy ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "Sign off"}
+          title={hasOpenQuery ? "Resolve the open query before confirming" : ""}>
+          {busy ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "Confirm output"}
         </button>
       </> : <button className="btn btn-secondary" onClick={onClose}>Close</button>}>
 
@@ -724,7 +724,7 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
         <span className="t-caption">Achievement: <strong>{pct(alloc.achievement_pct)}</strong></span>
       </div>
       {hasOpenQuery && canSignoff && (
-        <div className="alert alert-warning mb-3">An open query is awaiting the employee's revision. You can sign off once it's resolved.</div>
+        <div className="alert alert-warning mb-3">An open query is awaiting the employee's revision. You can confirm once it's resolved.</div>
       )}
 
       {loading && <div className="loading-center"><span className="spinner" /></div>}

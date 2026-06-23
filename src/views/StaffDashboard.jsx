@@ -170,6 +170,7 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
   }
 
   const locked = alloc.target_locked === 1;
+  const isConfirmed = alloc.work_status === "Confirmed" || alloc.signoff_status === "Confirmed";
 
   // Self-approval flag indicators
   const selfApprTarget = alloc.self_approval_target === 1;
@@ -193,18 +194,15 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
         </div>
       </div>
 
-      {/* Target chain status — four steps */}
+      {/* Two-state status: Allocated → Confirmed */}
       <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <span className={`badge ${alloc.target_set_by_id ? "badge-success" : "badge-neutral"}`}>① Set</span>
-        <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
-        <span className={`badge ${alloc.employee_acknowledged ? "badge-success" : alloc.target_set_by_id ? "badge-warning" : "badge-neutral"}`}>
-          ② Employee acknowledged
+        <span className={`badge ${alloc.target_set_by_id ? "badge-success" : "badge-neutral"}`}>
+          {alloc.target_set_by_id ? "✓ Allocated" : "Needs target"}
         </span>
         <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
-        <span className={`badge ${alloc.hrbp_confirmation ? "badge-success" : "badge-neutral"}`}>③ HRBP confirmed</span>
-        <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
-        <span className={`badge ${alloc.director_approval ? "badge-success" : "badge-neutral"}`}>④ Director approved</span>
-        {locked && <span className="badge badge-success" style={{ marginLeft: 4 }}>🔒 Locked</span>}
+        <span className={`badge ${isConfirmed ? "badge-success" : "badge-neutral"}`}>
+          {isConfirmed ? "✓ Confirmed" : "Awaiting confirmation"}
+        </span>
       </div>
 
       {locked && (
@@ -228,75 +226,47 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
         </div>
       )}
 
-      {/* Actions */}
+      {/* Actions — COLLAPSED 2-STATE MODEL (Allocated → Confirmed) */}
       <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
-        {/* ① Set target */}
-        {!alloc.target_set_by_id && (isLM || isDir) && (
+        {/* ① Allocate: set a target. One action → Allocated (locked, ready). */}
+        {!alloc.target_set_by_id && (isLM || isDir || isHRBP) && (
           <SetTargetButton allocId={alloc.id}
             who={alloc.employee_name} metric={alloc.output_metric} unit={alloc.unit}
             onDone={() => { onAction?.(); }} />
         )}
-        {/* ② Employee acknowledge — only the owner, only after target is set */}
-        {alloc.target_set_by_id && !alloc.employee_acknowledged && isOwner && (
-          <button className="btn btn-primary btn-sm" disabled={busy}
-            onClick={() => act(() => allocApi.acknowledgeTarget(alloc.id), "Acknowledge")}>
-            Acknowledge target
-          </button>
-        )}
-        {/* Nudge for managers: waiting on employee */}
-        {alloc.target_set_by_id && !alloc.employee_acknowledged && !isOwner && (isLM || isHRBP || isDir) && (
-          <span className="badge badge-warning" style={{ alignSelf: "center" }}>
-            Awaiting employee acknowledgement
-          </span>
-        )}
-        {/* ③ HRBP confirm — only after employee has acknowledged */}
-        {alloc.target_set_by_id && alloc.employee_acknowledged && !alloc.hrbp_confirmation && isHRBP && (
-          <button className="btn btn-secondary btn-sm" disabled={busy}
-            onClick={() => act(() => allocApi.confirmTarget(alloc.id), "Confirm")}>
-            Confirm target
-          </button>
-        )}
-        {/* ④ Director approve */}
-        {!!alloc.hrbp_confirmation && !alloc.director_approval && isDir && (
-          <button className="btn btn-secondary btn-sm" disabled={busy}
-            onClick={() => act(() => allocApi.approveTarget(alloc.id), "Approve")}>
-            Approve target
-          </button>
-        )}
-        {/* Submission */}
-        {locked && isOwner && (
+
+        {/* ② Employee submits output (proof + IPO), as many times as needed. */}
+        {locked && isOwner && !isConfirmed && (
           <button className="btn btn-primary btn-sm" onClick={() => onSubmit?.(alloc)}>
             + Submit output
           </button>
         )}
-        {/* Review work — managers can inspect submissions + proof anytime once locked */}
+
+        {/* Managers can review submissions + proof, and query anytime once allocated. */}
         {locked && !isOwner && (isLM || isHRBP || isDir) && (
           <button className="btn btn-ghost btn-sm" onClick={() => setReviewing(true)}>
             Review work
           </button>
         )}
-        {/* Sign-off — now goes through the review screen (inspect before signing) */}
-        {locked && !alloc.signoff_performed && isLM && (
-          <button className="btn btn-secondary btn-sm" onClick={() => setReviewing(true)}>
-            Review &amp; sign off
+
+        {/* ③ Confirm: one end-of-cycle action by HRBP / KAD Director → Confirmed. */}
+        {locked && !isConfirmed && (isHRBP || isDir) && (
+          <button className="btn btn-secondary btn-sm" disabled={busy}
+            onClick={() => act(() => allocApi.confirm(alloc.id), "Confirm")}>
+            Confirm output
           </button>
         )}
-        {!!alloc.signoff_performed && !alloc.director_signoff_confirmation && isDir && (
-          <button className="btn btn-secondary btn-sm" disabled={busy}
-            onClick={() => act(() => allocApi.confirmSignoffDirector(alloc.id), "Confirm SO")}>
-            Confirm sign-off
-          </button>
-        )}
-        {!!alloc.signoff_performed && !alloc.hrbp_signoff_confirmation && isHRBP && (
-          <button className="btn btn-secondary btn-sm" disabled={busy}
-            onClick={() => act(() => allocApi.confirmSignoffHRBP(alloc.id), "Confirm SO")}>
-            Confirm sign-off
+        {/* Reopen a confirmed row if something needs changing. */}
+        {isConfirmed && (isHRBP || isDir) && (
+          <button className="btn btn-ghost btn-sm" disabled={busy}
+            onClick={() => act(() => allocApi.unconfirm(alloc.id), "Reopen")}>
+            Reopen
           </button>
         )}
       </div>
       {actionErr && <p className="form-error" style={{ marginTop: 8 }}>{actionErr}</p>}
       {reviewing && (
-        <SubmissionReview alloc={alloc} canSignoff={isLM && !alloc.signoff_performed}
+        <SubmissionReview alloc={alloc} canSignoff={(isHRBP || isDir) && !isConfirmed}
           onClose={() => setReviewing(false)}
           onSignoff={() => { setReviewing(false); onAction?.(); }}
           onQueried={() => { setReviewing(false); onAction?.(); }} />
@@ -378,19 +348,17 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
   // so we trust it directly rather than re-filtering client-side.
   const rows = allocs || [];
 
-  // Classify each allocation into a cycle stage for the manager.
+  // Two-state model: a row either needs a target, or it's Allocated and moving
+  // through work → Confirmed. Group accordingly.
   const stageOf = (a) => {
-    if (a.target_locked) return "locked";
     if (a.target_value == null || a.target_set_by_id == null) return "needs_target";
-    if (!a.employee_acknowledged) return "awaiting_ack";
-    if (!a.hrbp_confirmation || !a.director_approval) return "awaiting_confirm";
-    return "needs_target";
+    if (a.work_status === "Confirmed" || a.signoff_status === "Confirmed") return "confirmed";
+    return "allocated";
   };
   const STAGES = [
-    { key: "needs_target",     title: "Needs a target",            hint: "Set the number these are measured against." },
-    { key: "awaiting_ack",     title: "Awaiting employee sign-off", hint: "Target set — waiting for the employee to acknowledge." },
-    { key: "awaiting_confirm", title: "Awaiting confirmation",      hint: "Acknowledged — moving through HRBP/Director approval." },
-    { key: "locked",           title: "Locked & in progress",       hint: "Targets locked; work is being tracked." },
+    { key: "needs_target", title: "Needs a target", hint: "Set the number these are measured against. Setting it allocates the work." },
+    { key: "allocated",    title: "Allocated — work in progress", hint: "Target set. The employee submits outputs; confirm at end of cycle." },
+    { key: "confirmed",    title: "Confirmed", hint: "Output verified and rolled into the dashboard." },
   ];
   const grouped = {};
   for (const a of rows) { const s = stageOf(a); (grouped[s] ||= []).push(a); }
@@ -505,43 +473,24 @@ function ActionInbox({ allocations, actor, roles, onGoTo }) {
     const isHRBP = scoped("HRBP");
     const isDir  = scoped("KAD Director");
     const name   = a.employee_name || a.output_metric;
+    const confirmed = a.work_status === "Confirmed" || a.signoff_status === "Confirmed";
 
-    // Owner: acknowledge my target
-    if (isOwner && a.target_set_by_id && !a.employee_acknowledged)
-      items.push({ key: `ack-${a.id}`, urgent: true, action: "Acknowledge your target",
-        context: `${a.output_metric} — review and accept the number set for you`, goto: "my" });
     // Owner: a submission was queried — revise it (highest priority for the employee)
     if (isOwner && a.open_query_count > 0)
       items.push({ key: `qry-${a.id}`, urgent: true, action: "Your work was queried",
         context: `${a.output_metric} — a manager asked you to revise. Open it, read the note, and resubmit.`, goto: "my" });
-    // Owner: submit work (locked, ready) — only when nothing is currently queried
-    if (isOwner && a.target_locked === 1 && !(a.open_query_count > 0) && a.signoff_status !== "Confirmed")
+    // Owner: submit work (allocated, ready) — only when nothing is currently queried
+    if (isOwner && a.target_locked === 1 && !(a.open_query_count > 0) && !confirmed)
       items.push({ key: `sub-${a.id}`, urgent: false, action: "Submit your work",
         context: `${a.output_metric} — log progress against your target of ${a.target_value}`, goto: "my" });
-    // LM/Dir: set a target
-    if (!a.target_set_by_id && (isLM || isDir) && !isOwner)
+    // LM/Dir/HRBP: set a target (allocate the work)
+    if (!a.target_set_by_id && (isLM || isDir || isHRBP) && !isOwner)
       items.push({ key: `set-${a.id}`, urgent: true, action: `Set a target for ${name}`,
         context: `${a.output_metric} — no target set yet`, goto: "team" });
-    // HRBP: confirm a target (after employee ack)
-    if (a.target_set_by_id && a.employee_acknowledged && !a.hrbp_confirmation && isHRBP)
-      items.push({ key: `conf-${a.id}`, urgent: true, action: `Confirm ${name}'s target`,
-        context: `${a.output_metric} — employee has acknowledged, awaiting your confirmation`, goto: "team" });
-    // Dir: approve a target
-    if (a.hrbp_confirmation && !a.director_approval && isDir)
-      items.push({ key: `appr-${a.id}`, urgent: true, action: `Approve ${name}'s target`,
-        context: `${a.output_metric} — HRBP confirmed, awaiting your final approval`, goto: "team" });
-    // LM: perform sign-off
-    if (a.target_locked === 1 && !a.signoff_performed && isLM && !isOwner)
-      items.push({ key: `so-${a.id}`, urgent: false, action: `Sign off ${name}'s output`,
-        context: `${a.output_metric} — period work complete, perform sign-off`, goto: "team" });
-    // Dir: confirm sign-off
-    if (a.signoff_performed && !a.director_signoff_confirmation && isDir)
-      items.push({ key: `sod-${a.id}`, urgent: false, action: `Confirm sign-off for ${name}`,
-        context: `${a.output_metric} — sign-off performed, awaiting your confirmation`, goto: "team" });
-    // HRBP: confirm sign-off
-    if (a.signoff_performed && !a.hrbp_signoff_confirmation && isHRBP)
-      items.push({ key: `soh-${a.id}`, urgent: false, action: `Confirm sign-off for ${name}`,
-        context: `${a.output_metric} — sign-off performed, awaiting your confirmation`, goto: "team" });
+    // HRBP/Dir: confirm the output at end of cycle (the single confirm action)
+    if (a.target_locked === 1 && !confirmed && (isHRBP || isDir) && !isOwner)
+      items.push({ key: `conf-${a.id}`, urgent: false, action: `Confirm ${name}'s output`,
+        context: `${a.output_metric} — verify the submitted output and confirm`, goto: "team" });
   }
 
   // urgent first

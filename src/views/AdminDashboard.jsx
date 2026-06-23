@@ -488,11 +488,12 @@ function PeriodsTab() {
               {saving?<span className="spinner" style={{width:14,height:14}}/>:"Create"}
             </button></>}>
           <div className="form-group"><label className="form-label">Period label <span>*</span></label><input className="form-input" value={form.period_label} onChange={e=>f("period_label",e.target.value)} placeholder="e.g. 2026-W25/26" autoFocus/></div>
-          <div className="form-group"><label className="form-label">KAD (optional)</label>
+          <div className="form-group"><label className="form-label">KAD</label>
             <select className="form-select" value={form.kad_id} onChange={e=>f("kad_id",e.target.value)}>
-              <option value="">Select…</option>
-              {kads?.map(k=><option key={k.id} value={k.id}>{k.kad_name}</option>)}
+              <option value="">Org-wide — all KADs share this period</option>
+              {kads?.map(k=><option key={k.id} value={k.id}>KAD-only: {k.kad_name}</option>)}
             </select>
+            <p className="form-hint">Leave as org-wide unless one KAD genuinely needs its own private calendar.</p>
           </div>
           <div className="grid-2">
             <div className="form-group"><label className="form-label">Start date <span>*</span></label><input className="form-input" type="date" value={form.start_date} onChange={e=>f("start_date",e.target.value)}/></div>
@@ -717,7 +718,7 @@ function RoleAssignmentsTab() {
   async function remove(id){ if(!confirm("Remove this role assignment?")) return;
     try{ await setup.deleteRoleAssignment(id); reload(); } catch(e){ alert(e.message); } }
 
-  const roleDesc = { "KAD Director": "Final approval + sign-off confirmation", "HRBP": "Target confirmation + sign-off confirmation", "Line Manager": "Sets targets + performs sign-off", "Executive": "Org-wide oversight (cross-KAD visibility)" };
+  const roleDesc = { "KAD Director": "Confirms output (end of cycle)", "HRBP": "Sets targets + confirms output", "Line Manager": "Sets targets + reviews work", "Executive": "Org-wide oversight (cross-KAD visibility)" };
 
   // Group assignment rows by person+role, so a scoped LM with several rows shows
   // as ONE line ("manages N people") instead of N separate rows.
