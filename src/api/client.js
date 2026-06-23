@@ -140,6 +140,13 @@ export const allocations = {
   linkSla: (id, sla_id)               => req("POST", `/allocations/${id}/sla`,              { body: { sla_id } }),
   // Submission review (before sign-off)
   listSubmissions: (id)               => req("GET", `/allocations/${id}/submissions`),
+  // Per-submission query loop
+  querySubmission:   (id, subId, note) => req("POST", `/allocations/${id}/submissions/${subId}/query`,   { body: { note } }),
+  resolveSubmission: (id, subId)       => req("POST", `/allocations/${id}/submissions/${subId}/resolve`),
+  // People this actor may allocate to (scoped: LM→reports, HRBP/Director→KAD)
+  allocatablePeople: (kadId)          => req("GET", `/people/allocatable${kadId ? `?kad=${kadId}` : ""}`),
+  // Clients in the actor's KAD (for project creation by operational roles)
+  myClients: (kadId)                  => req("GET", `/clients/mine${kadId ? `?kad=${kadId}` : ""}`),
   // Proof needs auth, so fetch as a blob and return an object URL the UI can show/open
   fetchProof: async (id, subId) => {
     const token = getToken();
@@ -160,6 +167,22 @@ export const flags = {
     return req("GET", `/flags?${params}`);
   },
   manage: (id, body) => req("PATCH", `/flags/${id}`, { body }),
+};
+
+// ── cross-KAD resource visibility (HRBP / Director / Executive / admin) ───────
+export const resources = {
+  list: (periodId, kadId) => {
+    const params = new URLSearchParams();
+    if (periodId) params.set("period", periodId);
+    if (kadId)    params.set("kad", kadId);
+    return req("GET", `/resources?${params}`);
+  },
+  bench: (periodId, kadId) => {
+    const params = new URLSearchParams();
+    if (periodId) params.set("period", periodId);
+    if (kadId)    params.set("kad", kadId);
+    return req("GET", `/resources/bench?${params}`);
+  },
 };
 
 // ── dashboard ────────────────────────────────────────────────────────────────
