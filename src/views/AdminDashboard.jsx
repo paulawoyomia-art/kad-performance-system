@@ -345,7 +345,7 @@ function PeopleTab() {
           </>}>
           <div className="grid-2">
             <div className="form-group"><label className="form-label">Employee ID <span>*</span></label><input className="form-input" value={form.employee_id} onChange={e=>f("employee_id",e.target.value)} placeholder="TCL-001"/></div>
-            <div className="form-group"><label className="form-label">KAD <span>*</span></label>
+            <div className="form-group"><label className="form-label">KAD (optional)</label>
               <select className="form-select" value={form.kad_id} onChange={e=>f("kad_id",e.target.value)}>
                 <option value="">Select…</option>
                 {kads?.map(k=><option key={k.id} value={k.id}>{k.kad_name}</option>)}
@@ -419,7 +419,7 @@ function ClientsTab() {
               {saving?<span className="spinner" style={{width:14,height:14}}/>:"Create"}
             </button></>}>
           <div className="form-group"><label className="form-label">Client name <span>*</span></label><input className="form-input" value={form.client_name} onChange={e=>f("client_name",e.target.value)} autoFocus/></div>
-          <div className="form-group"><label className="form-label">KAD <span>*</span></label>
+          <div className="form-group"><label className="form-label">KAD (optional)</label>
             <select className="form-select" value={form.kad_id} onChange={e=>f("kad_id",e.target.value)}>
               <option value="">Select…</option>
               {kads?.map(k=><option key={k.id} value={k.id}>{k.kad_name}</option>)}
@@ -444,7 +444,7 @@ function PeriodsTab() {
   function f(k,v){ setForm(p=>({...p,[k]:v})); }
 
   async function create(e){ e.preventDefault(); setErr(""); setSaving(true);
-    try{ await setup.createPeriod({...form, kad_id:Number(form.kad_id)}); setCreating(false); setForm({period_label:"",kad_id:"",start_date:"",end_date:""}); reload(); }
+    try{ await setup.createPeriod({...form, kad_id: form.kad_id ? Number(form.kad_id) : null}); setCreating(false); setForm({period_label:"",kad_id:"",start_date:"",end_date:""}); reload(); }
     catch(e){ setErr(e.message); } finally{ setSaving(false); } }
 
   async function act(fn, id){ setActionErr({});
@@ -484,11 +484,11 @@ function PeriodsTab() {
       {creating && (
         <Modal title="New period" onClose={()=>{setCreating(false);setErr("");}}
           footer={<><button className="btn btn-secondary" onClick={()=>setCreating(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={create} disabled={saving||!form.period_label||!form.kad_id||!form.start_date||!form.end_date}>
+            <button className="btn btn-primary" onClick={create} disabled={saving||!form.period_label||!form.start_date||!form.end_date}>
               {saving?<span className="spinner" style={{width:14,height:14}}/>:"Create"}
             </button></>}>
           <div className="form-group"><label className="form-label">Period label <span>*</span></label><input className="form-input" value={form.period_label} onChange={e=>f("period_label",e.target.value)} placeholder="e.g. 2026-W25/26" autoFocus/></div>
-          <div className="form-group"><label className="form-label">KAD <span>*</span></label>
+          <div className="form-group"><label className="form-label">KAD (optional)</label>
             <select className="form-select" value={form.kad_id} onChange={e=>f("kad_id",e.target.value)}>
               <option value="">Select…</option>
               {kads?.map(k=><option key={k.id} value={k.id}>{k.kad_name}</option>)}
