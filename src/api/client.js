@@ -59,11 +59,13 @@ export const setup = {
   listKads:        ()         => req("GET",   "/setup/kads"),
   createKad:       (body)     => req("POST",  "/setup/kads",            { body }),
   updateKad:       (id, body) => req("PATCH", `/setup/kads/${id}`,      { body }),
+  deleteKad:       (id)       => req("DELETE",`/setup/kads/${id}`),
 
   // People
   listPeople:      (kadId)    => req("GET",   `/setup/people${kadId ? `?kad=${kadId}` : ""}`),
   createPerson:    (body)     => req("POST",  "/setup/people",          { body }),
   updatePerson:    (id, body) => req("PATCH", `/setup/people/${id}`,    { body }),
+  deletePerson:    (id)       => req("DELETE",`/setup/people/${id}`),
   resetPassword:   (id)       => req("POST",  `/setup/people/${id}/reset-password`),
   importPeople:    (file)     => { const f = new FormData(); f.append("file", file); return req("POST", "/setup/people/import", { form: f }); },
   peopleTemplate:  ()         => req("GET",   "/setup/people/template"),
@@ -72,17 +74,21 @@ export const setup = {
   listClients:     (kadId)    => req("GET",   `/setup/clients${kadId ? `?kad=${kadId}` : ""}`),
   createClient:    (body)     => req("POST",  "/setup/clients",         { body }),
   updateClient:    (id, body) => req("PATCH", `/setup/clients/${id}`,   { body }),
+  deleteClient:    (id)       => req("DELETE",`/setup/clients/${id}`),
 
   // Role Assignments
   listRoles:           ()     => req("GET",   "/setup/roles"),
   listRoleAssignments: (pid)  => req("GET",   `/setup/role-assignments${pid ? `?person=${pid}` : ""}`),
   createRoleAssignment:(body) => req("POST",  "/setup/role-assignments", { body }),
   deleteRoleAssignment:(id)   => req("DELETE",`/setup/role-assignments/${id}`),
+  scopeCandidates:     (pid)  => req("GET",   `/setup/role-assignments/scope-candidates/${pid}`),
+  updateScope:         (body) => req("POST",  "/setup/role-assignments/scope", { body }),
 
   // Projects
   listProjects:    (opts)     => req("GET",   `/setup/projects${opts?.kadId ? `?kad=${opts.kadId}` : ""}`),
   createProject:   (body)     => req("POST",  "/setup/projects",        { body }),
   updateProject:   (id, body) => req("PATCH", `/setup/projects/${id}`,  { body }),
+  deleteProject:   (id)       => req("DELETE",`/setup/projects/${id}`),
   importProjects:  (file)     => { const f = new FormData(); f.append("file", file); return req("POST", "/setup/projects/import", { form: f }); },
   projectsTemplate:()         => req("GET",   "/setup/projects/template"),
 
@@ -91,6 +97,9 @@ export const setup = {
   createPeriod:    (body)     => req("POST",  "/setup/periods",         { body }),
 
   // Allocations
+  listAllocations:    (period) => req("GET", `/allocations${period ? `?period=${period}` : ""}`),
+  createAllocation:   (body)   => req("POST", "/setup/allocations", { body }),
+  deleteAllocation:   (id)     => req("DELETE", `/setup/allocations/${id}`),
   importAllocations:  (file)  => { const f = new FormData(); f.append("file", file); return req("POST", "/setup/allocations/import", { form: f }); },
   allocationsTemplate:()      => req("GET",   "/setup/allocations/template"),
 };
@@ -188,6 +197,7 @@ export const resources = {
 // ── dashboard ────────────────────────────────────────────────────────────────
 export const dashboard = {
   kad: (periodId) => req("GET", `/dashboard/kad${periodId ? `?period=${periodId}` : ""}`),
+  org: (periodId) => req("GET", `/dashboard/org${periodId ? `?period=${periodId}` : ""}`),
 };
 
 // ── projects: management, SLAs, milestones ───────────────────────────────────
