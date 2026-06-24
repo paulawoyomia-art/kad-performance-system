@@ -72,12 +72,15 @@ export function KadDashboard({ actor, selectedPeriod, onAnyAction }) {
 
   const { kad, totals, employees, projects } = data;
 
-  // KAD sign-off readiness from the live allocations
+  // Report-to-org readiness (three-actor chain): the KAD Director can report
+  // only after the HRBP has marked the cycle complete (hrbp_signoff_confirmation).
   const rows = allocs || [];
-  const awaitingHrbp = rows.filter(a => a.target_locked === 1 && a.hrbp_signoff_confirmation !== 1).length;
-  const readyToSeal  = rows.filter(a => a.hrbp_signoff_confirmation === 1 && a.director_signoff_confirmation !== 1).length;
+  const lockedRows   = rows.filter(a => a.target_locked === 1);
+  const awaitingWork = lockedRows.filter(a => a.signoff_performed !== 1).length;             // L1 pending
+  const awaitingHrbp = lockedRows.filter(a => a.signoff_performed === 1 && a.hrbp_signoff_confirmation !== 1).length; // L2 pending
+  const readyToSeal  = rows.filter(a => a.hrbp_signoff_confirmation === 1 && a.director_signoff_confirmation !== 1).length; // L3 ready
   const sealed       = rows.filter(a => a.director_signoff_confirmation === 1).length;
-  const canSeal = awaitingHrbp === 0 && readyToSeal > 0;
+  const canSeal = readyToSeal > 0 && awaitingHrbp === 0 && awaitingWork === 0;
 
   async function seal(fn, label) {
     setSignErr(""); setSigning(true);
@@ -90,31 +93,33 @@ export function KadDashboard({ actor, selectedPeriod, onAnyAction }) {
     <div>
       <h2 className="t-title mb-4">{kad?.kad_name} — live overview</h2>
 
-      {/* KAD sign-off band — the Director's headline action */}
+      {/* Report-to-org band — the Director's final stamp (Layer 3) */}
       <div className="card" style={{ marginBottom: 16, borderLeft: "3px solid var(--accent, #2563eb)" }}>
         <div className="flex justify-between items-center" style={{ flexWrap: "wrap", gap: 10 }}>
           <div>
-            <strong>KAD sign-off</strong>
+            <strong>Report KAD to org</strong>
             <p className="t-caption" style={{ marginTop: 2 }}>
-              {sealed > 0 && <>{sealed} row(s) signed off. </>}
+              {sealed > 0 && <>{sealed} row(s) reported. </>}
               {readyToSeal > 0
-                ? <>{readyToSeal} HRBP-confirmed row(s) ready to seal{awaitingHrbp > 0 ? `, but ${awaitingHrbp} still await HRBP confirmation.` : "."}</>
-                : awaitingHrbp > 0
-                  ? <>{awaitingHrbp} row(s) still await HRBP confirmation before you can sign off.</>
-                  : <>Nothing waiting on sign-off.</>}
+                ? <>{readyToSeal} HRBP-checked row(s) ready to report to the org.</>
+                : awaitingWork > 0
+                  ? <>Confirm the work on {awaitingWork} row(s) first, then the HRBP marks the cycle complete.</>
+                  : awaitingHrbp > 0
+                    ? <>Work is confirmed — waiting on the HRBP to mark the cycle complete (Register).</>
+                    : <>Nothing waiting to report.</>}
             </p>
           </div>
           <div className="flex gap-2">
             {canSeal && (
               <button className="btn btn-primary btn-sm" disabled={signing}
-                onClick={() => seal(() => allocApi.kadSignoff(selectedPeriod), "Sign off")}>
-                Sign off the KAD ({readyToSeal})
+                onClick={() => seal(() => allocApi.kadSignoff(selectedPeriod), "Report")}>
+                Report to org ({readyToSeal})
               </button>
             )}
             {sealed > 0 && (
               <button className="btn btn-ghost btn-sm" disabled={signing}
                 onClick={() => seal(() => allocApi.kadUnsignoff(selectedPeriod), "Reopen")}>
-                Reopen sign-off
+                Reopen report
               </button>
             )}
           </div>
@@ -788,7 +793,7 @@ function MilestoneManager({ projectId, milestones, reload }) {
 // ════════════════════════════════════════════════════════════════════════════
 // 5. SUBMISSION REVIEW  (inspect work + proof before sign-off; raise a query)
 // ════════════════════════════════════════════════════════════════════════════
-export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQueried }) {
+export function SubmissionReview({ alloc, canQuery, onClose, onQueried }) {
   const { data: subs, loading, reload } = useAsync(() => allocApi.listSubmissions(alloc.id), [alloc.id]);
   const [proofUrls, setProofUrls] = useState({});
   const [busy, setBusy] = useState(false);
@@ -807,11 +812,6 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
       setProofView({ url, name: sub.proof_description || `Proof — ${sub.date_of_activity}`,
                      isPdf: /\.pdf($|\?)/i.test(sub.proof_key || "") });
     } catch (e) { setErr(e.message); }
-  }
-  async function doSignoff() {
-    setErr(""); setBusy(true);
-    try { await allocApi.confirm(alloc.id); onSignoff?.(); }
-    catch (e) { setErr(e.message); setBusy(false); }
   }
   async function sendQuery(subId) {
     if (!queryText.trim()) { setErr("Describe what needs fixing."); return; }
@@ -833,21 +833,18 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
 
   return (
     <Modal title={`Review — ${alloc.output_metric}${alloc.employee_name ? ` · ${alloc.employee_name}` : ""}`} onClose={onClose}
-      footer={canSignoff ? <>
-        <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Close</button>
-        <button className="btn btn-primary" onClick={doSignoff} disabled={busy || hasOpenQuery}
-          title={hasOpenQuery ? "Resolve the open query before confirming" : ""}>
-          {busy ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "Confirm output"}
-        </button>
-      </> : <button className="btn btn-secondary" onClick={onClose}>Close</button>}>
+      footer={<button className="btn btn-secondary" onClick={onClose}>Close</button>}>
 
       <div className="flex items-center gap-3 mb-3" style={{ flexWrap: "wrap" }}>
         <span className="t-caption">Target: <strong>{alloc.target_value}</strong></span>
         <span className="t-caption">Total submitted: <strong>{total}</strong></span>
         <span className="t-caption">Achievement: <strong>{pct(alloc.achievement_pct)}</strong></span>
       </div>
-      {hasOpenQuery && canSignoff && (
-        <div className="alert alert-warning mb-3">An open query is awaiting the employee's revision. You can confirm once it's resolved.</div>
+      {hasOpenQuery && (
+        <div className="alert alert-warning mb-3">An open query is awaiting the employee's revision.</div>
+      )}
+      {!canQuery && (
+        <p className="t-caption mb-3" style={{ color: "var(--text-secondary)" }}>You have view access. Querying is the KAD Director's action.</p>
       )}
 
       {loading && <div className="loading-center"><span className="spinner" /></div>}
@@ -877,10 +874,10 @@ export function SubmissionReview({ alloc, canSignoff, onClose, onSignoff, onQuer
             <div className="flex items-center gap-2 mt-2" style={{ flexWrap: "wrap" }}>
               {s.submitted_by_name && <span className="t-caption">by {s.submitted_by_name}</span>}
               {s.proof_key && <button className="btn btn-ghost btn-sm" onClick={() => viewProof(s)}>View proof</button>}
-              {canSignoff && !open && queryFor !== s.id && (
+              {canQuery && !open && queryFor !== s.id && (
                 <button className="btn btn-ghost btn-sm" onClick={() => { setQueryFor(s.id); setQueryText(""); }}>Query this entry</button>
               )}
-              {canSignoff && open && (
+              {canQuery && open && (
                 <button className="btn btn-ghost btn-sm" onClick={() => clearQuery(s.id)} disabled={busy}>Mark resolved</button>
               )}
             </div>

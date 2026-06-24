@@ -144,7 +144,14 @@ function KADsTab() {
                     <td><strong>{k.kad_name}</strong></td>
                     <td><StatusBadge status={k.status}/></td>
                     <td>{k.headcount}</td>
-                    <td><button className="btn btn-danger btn-sm" onClick={async()=>{ if(!confirm(`Delete KAD "${k.kad_name}"? Blocked if it has people, clients, or periods.`)) return; try{ await setup.deleteKad(k.id); reload(); }catch(e){ alert(e.message); } }}>Delete</button></td>
+                    <td>
+                      <div className="flex gap-2">
+                        <button className="btn btn-secondary btn-sm" onClick={async()=>{ const next = k.status==="Active" ? "Dissolved" : "Active"; try{ await setup.updateKad(k.id,{status:next}); reload(); }catch(e){ alert(e.message); } }}>
+                          {k.status==="Active" ? "Deactivate" : "Reactivate"}
+                        </button>
+                        <button className="btn btn-danger btn-sm" onClick={async()=>{ if(!confirm(`Delete KAD "${k.kad_name}"? Blocked if it has people, clients, or periods.`)) return; try{ await setup.deleteKad(k.id); reload(); }catch(e){ alert(e.message); } }}>Delete</button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -367,6 +374,7 @@ function ClientsTab() {
   const [kadId, setKadId] = useState("");
   const { data: clients, loading, reload } = useAsync(() => setup.listClients(kadId||null), [kadId]);
   const [creating, setCreating] = useState(false);
+  const [renaming, setRenaming] = useState(null);
   const [form, setForm]   = useState({client_name:"",kad_id:""});
   const [err, setErr]     = useState("");
   const [saving, setSaving] = useState(false);
@@ -392,7 +400,15 @@ function ClientsTab() {
           <tbody>
             {clients?.length===0 && <tr><td colSpan={4}><div className="empty"><p className="empty-title">No clients yet</p></div></td></tr>}
             {clients?.map(c=><tr key={c.id}><td><strong>{c.client_name}</strong></td><td>{c.kad_name}</td><td><StatusBadge status={c.status}/></td>
-              <td><button className="btn btn-danger btn-sm" onClick={async()=>{ if(!confirm(`Delete client "${c.client_name}"? Blocked if it has projects — deactivate instead.`)) return; try{ await setup.deleteClient(c.id); reload(); }catch(e){ alert(e.message); } }}>Delete</button></td></tr>)}
+              <td>
+                <div className="flex gap-2">
+                  <button className="btn btn-ghost btn-sm" onClick={async()=>{ const name = prompt("Client name", c.client_name); if(name && name.trim() && name.trim()!==c.client_name){ try{ await setup.updateClient(c.id,{client_name:name.trim()}); reload(); }catch(e){ alert(e.message); } } }}>Rename</button>
+                  <button className="btn btn-secondary btn-sm" onClick={async()=>{ const next = c.status==="Active" ? "Inactive" : "Active"; try{ await setup.updateClient(c.id,{status:next}); reload(); }catch(e){ alert(e.message); } }}>
+                    {c.status==="Active" ? "Deactivate" : "Reactivate"}
+                  </button>
+                  <button className="btn btn-danger btn-sm" onClick={async()=>{ if(!confirm(`Delete client "${c.client_name}"? Blocked if it has projects — deactivate instead.`)) return; try{ await setup.deleteClient(c.id); reload(); }catch(e){ alert(e.message); } }}>Delete</button>
+                </div>
+              </td></tr>)}
           </tbody>
         </table></div></div>
       )}

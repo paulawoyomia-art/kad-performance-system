@@ -171,8 +171,9 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
 
   const acknowledged = alloc.employee_acknowledged === 1;
   const locked = alloc.target_locked === 1;                 // set + acknowledged
-  const hrbpConfirmed = alloc.hrbp_signoff_confirmation === 1;
-  const kadSealed = alloc.director_signoff_confirmation === 1;
+  const workConfirmed = alloc.signoff_performed === 1;          // L1: KAD Director, per row
+  const hrbpChecked = alloc.hrbp_signoff_confirmation === 1;    // L2: HRBP completeness
+  const reported = alloc.director_signoff_confirmation === 1;   // L3: KAD report to org → consolidation
   const hasTarget = !!alloc.target_set_by_id;
 
   return (
@@ -192,15 +193,17 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
         </div>
       </div>
 
-      {/* Two-layer status: Target → Acknowledged → HRBP confirmed → KAD signed off */}
+      {/* Three-actor chain: Target → Acknowledged → Work confirmed (KAD) → HRBP checked → Reported to org (KAD) */}
       <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
         <span className={`badge ${hasTarget ? "badge-success" : "badge-neutral"}`}>{hasTarget ? "✓ Target set" : "Needs target"}</span>
         <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
         <span className={`badge ${acknowledged ? "badge-success" : "badge-neutral"}`}>{acknowledged ? "✓ Acknowledged" : "Awaiting ack"}</span>
         <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
-        <span className={`badge ${hrbpConfirmed ? "badge-success" : "badge-neutral"}`}>{hrbpConfirmed ? "✓ HRBP confirmed" : "HRBP confirm"}</span>
+        <span className={`badge ${workConfirmed ? "badge-success" : "badge-neutral"}`}>{workConfirmed ? "✓ Work confirmed" : "Work confirm"}</span>
         <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
-        <span className={`badge ${kadSealed ? "badge-success" : "badge-neutral"}`}>{kadSealed ? "✓ KAD signed off" : "KAD sign-off"}</span>
+        <span className={`badge ${hrbpChecked ? "badge-success" : "badge-neutral"}`}>{hrbpChecked ? "✓ HRBP checked" : "HRBP check"}</span>
+        <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
+        <span className={`badge ${reported ? "badge-success" : "badge-neutral"}`}>{reported ? "✓ Reported to org" : "Report to org"}</span>
       </div>
 
       {locked && (
@@ -246,28 +249,28 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
         )}
 
         {/* Employee submits output (proof + IPO), as many times as needed. */}
-        {locked && isOwner && !kadSealed && (
+        {locked && isOwner && !reported && (
           <button className="btn btn-primary btn-sm" onClick={() => onSubmit?.(alloc)}>
             + Submit output
           </button>
         )}
 
-        {/* HRBP / KAD review submissions + proof, query if wrong. */}
+        {/* HRBP + KAD both see the work. HRBP = view only; KAD can query (inside the reviewer). */}
         {locked && !isOwner && (isHRBP || isDir) && (
           <button className="btn btn-ghost btn-sm" onClick={() => setReviewing(true)}>
             Review work
           </button>
         )}
 
-        {/* Layer 1 — HRBP confirms the row. */}
-        {locked && !hrbpConfirmed && (isHRBP || isDir) && (
+        {/* Layer 1 — KAD Director confirms the work was done (line manager). KAD only. */}
+        {locked && !workConfirmed && isDir && (
           <button className="btn btn-secondary btn-sm" disabled={busy}
             onClick={() => act(() => allocApi.confirm(alloc.id), "Confirm")}>
-            Confirm output
+            Confirm work
           </button>
         )}
-        {/* Reopen an HRBP-confirmed row. KAD sign-off is a separate KAD-level action (on the KAD dashboard). */}
-        {hrbpConfirmed && !kadSealed && (isHRBP || isDir) && (
+        {/* Reopen a confirmed row (clears the chain from this row). KAD only. */}
+        {workConfirmed && !reported && isDir && (
           <button className="btn btn-ghost btn-sm" disabled={busy}
             onClick={() => act(() => allocApi.unconfirm(alloc.id), "Reopen")}>
             Reopen
@@ -276,9 +279,8 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
       </div>
       {actionErr && <p className="form-error" style={{ marginTop: 8 }}>{actionErr}</p>}
       {reviewing && (
-        <SubmissionReview alloc={alloc} canSignoff={(isHRBP || isDir) && !hrbpConfirmed}
+        <SubmissionReview alloc={alloc} canQuery={isDir}
           onClose={() => setReviewing(false)}
-          onSignoff={() => { setReviewing(false); onAction?.(); }}
           onQueried={() => { setReviewing(false); onAction?.(); }} />
       )}
     </div>
@@ -345,6 +347,8 @@ function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAn
 
 // ── Team Allocations view (managers / directors / HRBP) ───────────────────────
 function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAnyAction }) {
+  const { hasRole } = useAuth();
+  const isHRBP = hasRole?.("HRBP");
   const { data: allocs, loading, reload } = useAsync(
     () => selectedPeriod ? allocApi.list(selectedPeriod) : Promise.resolve([]),
     [selectedPeriod]
@@ -352,30 +356,47 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
   const [quickAlloc, setQuickAlloc] = useState(false);
   const [quickProject, setQuickProject] = useState(false);
   const [groupMode, setGroupMode] = useState("stage"); // 'stage' | 'person'
+  const [busy, setBusy] = useState(false);
+  const [bannerErr, setBannerErr] = useState("");
   const refresh = () => { reload(); onAnyAction?.(); };
 
   // Backend already scopes this read to the manager's KAD/reports (Layer 1),
   // so we trust it directly rather than re-filtering client-side.
   const rows = allocs || [];
 
-  // Two-layer model: needs target → awaiting acknowledgement → in progress
-  // (acked, submitting) → HRBP confirmed (awaiting KAD sign-off).
+  // Three-actor chain: needs target → awaiting ack → in progress → work confirmed
+  // (KAD) → HRBP checked → reported to org (KAD).
   const stageOf = (a) => {
     if (a.target_value == null || a.target_set_by_id == null) return "needs_target";
     if (a.employee_acknowledged !== 1) return "awaiting_ack";
-    if (a.hrbp_signoff_confirmation === 1) return "confirmed";
+    if (a.director_signoff_confirmation === 1) return "reported";
+    if (a.hrbp_signoff_confirmation === 1) return "hrbp_checked";
+    if (a.signoff_performed === 1) return "work_confirmed";
     return "in_progress";
   };
   const STAGES = [
     { key: "needs_target", title: "Needs a target", hint: "Set the number these are measured against. HRBP + KAD set targets here." },
-    { key: "awaiting_ack", title: "Awaiting acknowledgement", hint: "Target set — waiting on the employee to acknowledge before they can submit." },
-    { key: "in_progress",  title: "In progress", hint: "Acknowledged. The employee submits outputs; confirm each when verified." },
-    { key: "confirmed",    title: "HRBP confirmed", hint: "Verified by HRBP. Awaiting the KAD Director's sign-off to enter consolidation." },
+    { key: "awaiting_ack", title: "Awaiting acknowledgement", hint: "Target set — waiting on the employee to acknowledge before the cycle can open." },
+    { key: "in_progress",  title: "In progress", hint: "Acknowledged. The employee submits outputs; the KAD Director confirms each." },
+    { key: "work_confirmed", title: "Work confirmed", hint: "The KAD Director confirmed the work was done. Awaiting the HRBP completeness check." },
+    { key: "hrbp_checked",  title: "HRBP checked", hint: "HRBP confirmed the cycle is complete. Awaiting the KAD Director's report-to-org." },
+    { key: "reported",    title: "Reported to org", hint: "Sealed by the KAD Director — in consolidation." },
   ];
   const grouped = {};
   for (const a of rows) { const s = stageOf(a); (grouped[s] ||= []).push(a); }
 
   const needsTargetCount = (grouped.needs_target || []).length;
+  // HRBP completeness readiness: every row work-confirmed, none yet HRBP-checked.
+  const lockedRows = rows.filter(a => a.target_locked === 1);
+  const allWorkConfirmed = lockedRows.length > 0 && lockedRows.every(a => a.signoff_performed === 1);
+  const anyHrbpChecked = rows.some(a => a.hrbp_signoff_confirmation === 1);
+  const pendingWorkConfirm = lockedRows.filter(a => a.signoff_performed !== 1).length;
+
+  async function markComplete(fn, label) {
+    setBannerErr(""); setBusy(true);
+    try { await fn(); refresh(); }
+    catch (e) { setBannerErr(e.message); } finally { setBusy(false); }
+  }
 
   return (
     <div>
@@ -400,6 +421,28 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
           {needsTargetCount > 0 && (
             <div className="alert alert-warning mb-3">
               <strong>{needsTargetCount}</strong> allocation{needsTargetCount === 1 ? "" : "s"} still need a target before this period can be locked and opened.
+            </div>
+          )}
+
+          {/* HRBP completeness (Layer 2) — confirm the cycle is fully filled, then the KAD reports to org */}
+          {isHRBP && needsTargetCount === 0 && (
+            <div className={`alert mb-3 ${anyHrbpChecked ? "alert-success" : allWorkConfirmed ? "alert-info" : "alert-warning"}`}>
+              {anyHrbpChecked ? (
+                <div className="flex justify-between items-center" style={{ gap: 10, flexWrap: "wrap" }}>
+                  <span>✓ You marked this cycle complete. The KAD Director can now report it to the org.</span>
+                  <button className="btn btn-ghost btn-sm" disabled={busy}
+                    onClick={() => markComplete(() => allocApi.hrbpUncomplete(selectedPeriod), "Reopen")}>Reopen</button>
+                </div>
+              ) : allWorkConfirmed ? (
+                <div className="flex justify-between items-center" style={{ gap: 10, flexWrap: "wrap" }}>
+                  <span>All work is confirmed by the KAD Director. Confirm the cycle is complete to hand it back for report-to-org.</span>
+                  <button className="btn btn-primary btn-sm" disabled={busy}
+                    onClick={() => markComplete(() => allocApi.hrbpComplete(selectedPeriod), "Complete")}>Mark cycle complete</button>
+                </div>
+              ) : (
+                <span><strong>{pendingWorkConfirm}</strong> row{pendingWorkConfirm === 1 ? "" : "s"} still awaiting the KAD Director's work-confirmation before you can mark the cycle complete.</span>
+              )}
+              {bannerErr && <p className="form-error" style={{ marginTop: 6 }}>{bannerErr}</p>}
             </div>
           )}
           <div className="flex gap-2 mb-3" style={{ flexWrap: "wrap" }}>
@@ -477,7 +520,8 @@ function ActionInbox({ allocations, actor, roles, onGoTo }) {
   if (!allocations) return null;
 
   const items = [];
-  let kadAwaitingSignoff = 0;   // KAD-level: rows HRBP-confirmed but not yet sealed
+  let kadAwaitingSignoff = 0;   // KAD-level: rows HRBP-checked but not yet reported to org
+  let kadAwaitingHrbp = 0;      // KAD-level: rows work-confirmed but not yet HRBP-checked
   for (const a of allocations) {
     const isOwner = a.employee_id === actor?.id;
     const scoped  = (name) => roles?.some(r => r.role_name === name &&
@@ -488,36 +532,43 @@ function ActionInbox({ allocations, actor, roles, onGoTo }) {
     const hasTarget = !!a.target_set_by_id;
     const acked = a.employee_acknowledged === 1;
     const locked = a.target_locked === 1;
-    const hrbpConfirmed = a.hrbp_signoff_confirmation === 1;
-    const kadSealed = a.director_signoff_confirmation === 1;
+    const workConfirmed = a.signoff_performed === 1;
+    const hrbpChecked = a.hrbp_signoff_confirmation === 1;
+    const reported = a.director_signoff_confirmation === 1;
 
     // Owner: a submission was queried — revise it (highest priority for the employee)
     if (isOwner && a.open_query_count > 0)
       items.push({ key: `qry-${a.id}`, urgent: true, action: "Your work was queried",
-        context: `${a.output_metric} — a manager asked you to revise. Open it, read the note, and resubmit.`, goto: "my" });
-    // Owner: acknowledge the target before you can submit
+        context: `${a.output_metric} — the KAD Director asked you to revise. Open it, read the note, and resubmit (this replaces the queried entry).`, goto: "my" });
+    // Owner: acknowledge the target before the cycle can open
     if (isOwner && hasTarget && !acked)
       items.push({ key: `ack-${a.id}`, urgent: true, action: "Acknowledge your target",
-        context: `${a.output_metric} — target of ${a.target_value}. Acknowledge it to start logging work.`, goto: "my" });
+        context: `${a.output_metric} — target of ${a.target_value}. The cycle can't open until you acknowledge.`, goto: "my" });
     // Owner: submit work (acknowledged, ready)
-    if (isOwner && locked && !(a.open_query_count > 0) && !kadSealed)
+    if (isOwner && locked && !(a.open_query_count > 0) && !reported)
       items.push({ key: `sub-${a.id}`, urgent: false, action: "Submit your work",
         context: `${a.output_metric} — log progress against your target of ${a.target_value}`, goto: "my" });
     // HRBP/Dir: set a target (allocate the work)
     if (!hasTarget && (isDir || isHRBP) && !isOwner)
       items.push({ key: `set-${a.id}`, urgent: true, action: `Set a target for ${name}`,
         context: `${a.output_metric} — no target set yet`, goto: "register" });
-    // HRBP/Dir: confirm the output (layer 1)
-    if (locked && !hrbpConfirmed && (isHRBP || isDir) && !isOwner)
-      items.push({ key: `conf-${a.id}`, urgent: false, action: `Confirm ${name}'s output`,
-        context: `${a.output_metric} — verify the submitted output and confirm`, goto: "register" });
-    // Tally rows ready for the KAD-level sign-off
-    if (isDir && hrbpConfirmed && !kadSealed) kadAwaitingSignoff++;
+    // KAD Director: confirm the work was done (layer 1, line manager)
+    if (locked && !workConfirmed && isDir && !isOwner)
+      items.push({ key: `conf-${a.id}`, urgent: false, action: `Confirm ${name}'s work`,
+        context: `${a.output_metric} — review the submission and confirm the work was done`, goto: "register" });
+    // HRBP: rows are work-confirmed and awaiting the completeness check
+    if (isHRBP && !isOwner && workConfirmed && !hrbpChecked) kadAwaitingHrbp++;
+    // KAD Director: HRBP-checked rows awaiting the report-to-org stamp
+    if (isDir && hrbpChecked && !reported) kadAwaitingSignoff++;
   }
-  // KAD Director: one roll-up item to sign off the whole KAD
+  // HRBP: one roll-up item — mark the cycle complete
+  if (kadAwaitingHrbp > 0)
+    items.push({ key: "hrbp-complete", urgent: false, action: "Mark the cycle complete",
+      context: `${kadAwaitingHrbp} work-confirmed row(s) are ready for your completeness check`, goto: "register" });
+  // KAD Director: one roll-up item — report the KAD to org
   if (kadAwaitingSignoff > 0)
-    items.push({ key: "kad-signoff", urgent: false, action: "Sign off the KAD",
-      context: `${kadAwaitingSignoff} HRBP-confirmed row(s) are ready for your sign-off`, goto: "kad" });
+    items.push({ key: "kad-signoff", urgent: false, action: "Report the KAD to org",
+      context: `${kadAwaitingSignoff} HRBP-checked row(s) are ready for your final report-to-org`, goto: "kad" });
 
   // urgent first
   items.sort((x, y) => (y.urgent ? 1 : 0) - (x.urgent ? 1 : 0));
