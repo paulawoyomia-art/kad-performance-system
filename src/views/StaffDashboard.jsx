@@ -169,12 +169,11 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
     finally { setBusy(false); }
   }
 
-  const locked = alloc.target_locked === 1;
-  const isConfirmed = alloc.work_status === "Confirmed" || alloc.signoff_status === "Confirmed";
-
-  // Self-approval flag indicators
-  const selfApprTarget = alloc.self_approval_target === 1;
-  const selfApprSO     = alloc.self_approval_signoff === 1;
+  const acknowledged = alloc.employee_acknowledged === 1;
+  const locked = alloc.target_locked === 1;                 // set + acknowledged
+  const hrbpConfirmed = alloc.hrbp_signoff_confirmation === 1;
+  const kadSealed = alloc.director_signoff_confirmation === 1;
+  const hasTarget = !!alloc.target_set_by_id;
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -189,20 +188,19 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
           {alloc.unit && <span className="t-caption" style={{ marginLeft: 6 }}>({alloc.unit})</span>}
         </div>
         <div className="flex gap-2 items-center">
-          {selfApprTarget && <span className="badge badge-warning">Self-approval</span>}
           <WorkStatusBadge status={alloc.work_status} fallback={alloc.signoff_status} />
         </div>
       </div>
 
-      {/* Two-state status: Allocated → Confirmed */}
+      {/* Two-layer status: Target → Acknowledged → HRBP confirmed → KAD signed off */}
       <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <span className={`badge ${alloc.target_set_by_id ? "badge-success" : "badge-neutral"}`}>
-          {alloc.target_set_by_id ? "✓ Allocated" : "Needs target"}
-        </span>
+        <span className={`badge ${hasTarget ? "badge-success" : "badge-neutral"}`}>{hasTarget ? "✓ Target set" : "Needs target"}</span>
         <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
-        <span className={`badge ${isConfirmed ? "badge-success" : "badge-neutral"}`}>
-          {isConfirmed ? "✓ Confirmed" : "Awaiting confirmation"}
-        </span>
+        <span className={`badge ${acknowledged ? "badge-success" : "badge-neutral"}`}>{acknowledged ? "✓ Acknowledged" : "Awaiting ack"}</span>
+        <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
+        <span className={`badge ${hrbpConfirmed ? "badge-success" : "badge-neutral"}`}>{hrbpConfirmed ? "✓ HRBP confirmed" : "HRBP confirm"}</span>
+        <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
+        <span className={`badge ${kadSealed ? "badge-success" : "badge-neutral"}`}>{kadSealed ? "✓ KAD signed off" : "KAD sign-off"}</span>
       </div>
 
       {locked && (
@@ -226,38 +224,50 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
         </div>
       )}
 
-      {/* Actions — COLLAPSED 2-STATE MODEL (Allocated → Confirmed) */}
+      {/* Actions — TWO-LAYER MODEL */}
       <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
-        {/* ① Allocate: set a target. One action → Allocated (locked, ready). */}
-        {!alloc.target_set_by_id && (isLM || isDir || isHRBP) && (
+        {/* HRBP / KAD allocate: set a target. */}
+        {!hasTarget && (isHRBP || isDir) && (
           <SetTargetButton allocId={alloc.id}
             who={alloc.employee_name} metric={alloc.output_metric} unit={alloc.unit}
             onDone={() => { onAction?.(); }} />
         )}
 
-        {/* ② Employee submits output (proof + IPO), as many times as needed. */}
-        {locked && isOwner && !isConfirmed && (
+        {/* Employee acknowledges their target (unlocks submission). */}
+        {hasTarget && !acknowledged && isOwner && (
+          <button className="btn btn-primary btn-sm" disabled={busy}
+            onClick={() => act(() => allocApi.acknowledge(alloc.id), "Acknowledge")}>
+            Acknowledge target
+          </button>
+        )}
+        {/* Manager nudge: waiting on the employee to acknowledge. */}
+        {hasTarget && !acknowledged && !isOwner && (isHRBP || isDir) && (
+          <span className="badge badge-warning" style={{ alignSelf: "center" }}>Awaiting employee acknowledgement</span>
+        )}
+
+        {/* Employee submits output (proof + IPO), as many times as needed. */}
+        {locked && isOwner && !kadSealed && (
           <button className="btn btn-primary btn-sm" onClick={() => onSubmit?.(alloc)}>
             + Submit output
           </button>
         )}
 
-        {/* Managers can review submissions + proof, and query anytime once allocated. */}
-        {locked && !isOwner && (isLM || isHRBP || isDir) && (
+        {/* HRBP / KAD review submissions + proof, query if wrong. */}
+        {locked && !isOwner && (isHRBP || isDir) && (
           <button className="btn btn-ghost btn-sm" onClick={() => setReviewing(true)}>
             Review work
           </button>
         )}
 
-        {/* ③ Confirm: one end-of-cycle action by HRBP / KAD Director → Confirmed. */}
-        {locked && !isConfirmed && (isHRBP || isDir) && (
+        {/* Layer 1 — HRBP confirms the row. */}
+        {locked && !hrbpConfirmed && (isHRBP || isDir) && (
           <button className="btn btn-secondary btn-sm" disabled={busy}
             onClick={() => act(() => allocApi.confirm(alloc.id), "Confirm")}>
             Confirm output
           </button>
         )}
-        {/* Reopen a confirmed row if something needs changing. */}
-        {isConfirmed && (isHRBP || isDir) && (
+        {/* Reopen an HRBP-confirmed row. KAD sign-off is a separate KAD-level action (on the KAD dashboard). */}
+        {hrbpConfirmed && !kadSealed && (isHRBP || isDir) && (
           <button className="btn btn-ghost btn-sm" disabled={busy}
             onClick={() => act(() => allocApi.unconfirm(alloc.id), "Reopen")}>
             Reopen
@@ -266,7 +276,7 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
       </div>
       {actionErr && <p className="form-error" style={{ marginTop: 8 }}>{actionErr}</p>}
       {reviewing && (
-        <SubmissionReview alloc={alloc} canSignoff={(isHRBP || isDir) && !isConfirmed}
+        <SubmissionReview alloc={alloc} canSignoff={(isHRBP || isDir) && !hrbpConfirmed}
           onClose={() => setReviewing(false)}
           onSignoff={() => { setReviewing(false); onAction?.(); }}
           onQueried={() => { setReviewing(false); onAction?.(); }} />
@@ -348,17 +358,19 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
   // so we trust it directly rather than re-filtering client-side.
   const rows = allocs || [];
 
-  // Two-state model: a row either needs a target, or it's Allocated and moving
-  // through work → Confirmed. Group accordingly.
+  // Two-layer model: needs target → awaiting acknowledgement → in progress
+  // (acked, submitting) → HRBP confirmed (awaiting KAD sign-off).
   const stageOf = (a) => {
     if (a.target_value == null || a.target_set_by_id == null) return "needs_target";
-    if (a.work_status === "Confirmed" || a.signoff_status === "Confirmed") return "confirmed";
-    return "allocated";
+    if (a.employee_acknowledged !== 1) return "awaiting_ack";
+    if (a.hrbp_signoff_confirmation === 1) return "confirmed";
+    return "in_progress";
   };
   const STAGES = [
-    { key: "needs_target", title: "Needs a target", hint: "Set the number these are measured against. Setting it allocates the work." },
-    { key: "allocated",    title: "Allocated — work in progress", hint: "Target set. The employee submits outputs; confirm at end of cycle." },
-    { key: "confirmed",    title: "Confirmed", hint: "Output verified and rolled into the dashboard." },
+    { key: "needs_target", title: "Needs a target", hint: "Set the number these are measured against. HRBP + KAD set targets here." },
+    { key: "awaiting_ack", title: "Awaiting acknowledgement", hint: "Target set — waiting on the employee to acknowledge before they can submit." },
+    { key: "in_progress",  title: "In progress", hint: "Acknowledged. The employee submits outputs; confirm each when verified." },
+    { key: "confirmed",    title: "HRBP confirmed", hint: "Verified by HRBP. Awaiting the KAD Director's sign-off to enter consolidation." },
   ];
   const grouped = {};
   for (const a of rows) { const s = stageOf(a); (grouped[s] ||= []).push(a); }
@@ -368,7 +380,7 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
   return (
     <div>
       <div className="flex justify-between items-center mb-3" style={{ flexWrap: "wrap", gap: 8 }}>
-        <h2 className="t-title">My team this period</h2>
+        <h2 className="t-title">Register — this period</h2>
         <div className="flex gap-2">
           <button className="btn btn-secondary btn-sm" onClick={() => setQuickAlloc(true)}>+ Allocation</button>
           <button className="btn btn-secondary btn-sm" onClick={() => setQuickProject(true)}>+ Project</button>
@@ -378,8 +390,8 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
       {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p></div>}
       {selectedPeriod && loading && <div className="loading-center"><span className="spinner" /></div>}
       {selectedPeriod && !loading && rows.length === 0 && (
-        <div className="empty"><p className="empty-title">No one in your scope</p>
-          <p className="empty-body">No allocations for your team in this period yet. Use <strong>+ Allocation</strong> to add one, or import them in Admin.</p></div>
+        <div className="empty"><p className="empty-title">No one in your KAD</p>
+          <p className="empty-body">No allocations for your KAD in this period yet. Use <strong>+ Allocation</strong> to add one, or import them in Admin.</p></div>
       )}
 
       {selectedPeriod && !loading && rows.length > 0 && (
@@ -465,33 +477,47 @@ function ActionInbox({ allocations, actor, roles, onGoTo }) {
   if (!allocations) return null;
 
   const items = [];
+  let kadAwaitingSignoff = 0;   // KAD-level: rows HRBP-confirmed but not yet sealed
   for (const a of allocations) {
     const isOwner = a.employee_id === actor?.id;
     const scoped  = (name) => roles?.some(r => r.role_name === name &&
       (r.scope_employee_id === a.employee_id || r.scope_employee_id == null));
-    const isLM   = scoped("Line Manager");
     const isHRBP = scoped("HRBP");
     const isDir  = scoped("KAD Director");
     const name   = a.employee_name || a.output_metric;
-    const confirmed = a.work_status === "Confirmed" || a.signoff_status === "Confirmed";
+    const hasTarget = !!a.target_set_by_id;
+    const acked = a.employee_acknowledged === 1;
+    const locked = a.target_locked === 1;
+    const hrbpConfirmed = a.hrbp_signoff_confirmation === 1;
+    const kadSealed = a.director_signoff_confirmation === 1;
 
     // Owner: a submission was queried — revise it (highest priority for the employee)
     if (isOwner && a.open_query_count > 0)
       items.push({ key: `qry-${a.id}`, urgent: true, action: "Your work was queried",
         context: `${a.output_metric} — a manager asked you to revise. Open it, read the note, and resubmit.`, goto: "my" });
-    // Owner: submit work (allocated, ready) — only when nothing is currently queried
-    if (isOwner && a.target_locked === 1 && !(a.open_query_count > 0) && !confirmed)
+    // Owner: acknowledge the target before you can submit
+    if (isOwner && hasTarget && !acked)
+      items.push({ key: `ack-${a.id}`, urgent: true, action: "Acknowledge your target",
+        context: `${a.output_metric} — target of ${a.target_value}. Acknowledge it to start logging work.`, goto: "my" });
+    // Owner: submit work (acknowledged, ready)
+    if (isOwner && locked && !(a.open_query_count > 0) && !kadSealed)
       items.push({ key: `sub-${a.id}`, urgent: false, action: "Submit your work",
         context: `${a.output_metric} — log progress against your target of ${a.target_value}`, goto: "my" });
-    // LM/Dir/HRBP: set a target (allocate the work)
-    if (!a.target_set_by_id && (isLM || isDir || isHRBP) && !isOwner)
+    // HRBP/Dir: set a target (allocate the work)
+    if (!hasTarget && (isDir || isHRBP) && !isOwner)
       items.push({ key: `set-${a.id}`, urgent: true, action: `Set a target for ${name}`,
-        context: `${a.output_metric} — no target set yet`, goto: "team" });
-    // HRBP/Dir: confirm the output at end of cycle (the single confirm action)
-    if (a.target_locked === 1 && !confirmed && (isHRBP || isDir) && !isOwner)
+        context: `${a.output_metric} — no target set yet`, goto: "register" });
+    // HRBP/Dir: confirm the output (layer 1)
+    if (locked && !hrbpConfirmed && (isHRBP || isDir) && !isOwner)
       items.push({ key: `conf-${a.id}`, urgent: false, action: `Confirm ${name}'s output`,
-        context: `${a.output_metric} — verify the submitted output and confirm`, goto: "team" });
+        context: `${a.output_metric} — verify the submitted output and confirm`, goto: "register" });
+    // Tally rows ready for the KAD-level sign-off
+    if (isDir && hrbpConfirmed && !kadSealed) kadAwaitingSignoff++;
   }
+  // KAD Director: one roll-up item to sign off the whole KAD
+  if (kadAwaitingSignoff > 0)
+    items.push({ key: "kad-signoff", urgent: false, action: "Sign off the KAD",
+      context: `${kadAwaitingSignoff} HRBP-confirmed row(s) are ready for your sign-off`, goto: "kad" });
 
   // urgent first
   items.sort((x, y) => (y.urgent ? 1 : 0) - (x.urgent ? 1 : 0));
@@ -536,16 +562,23 @@ export default function StaffDashboard() {
 
   const isDirector  = hasRole("KAD Director");
   const isHRBP      = hasRole("HRBP");
-  const isLineMgr   = hasRole("Line Manager");
   const isExec      = hasRole("Executive");
-  const isOperational = isDirector || isHRBP || isLineMgr || actor?.is_hr_manager;
-  const canSeeResources = isHRBP || isDirector || isExec; // cross-KAD capacity view
-  const canSeeKadDash   = isDirector || isHRBP;            // KAD dashboard (HRBP parity)
-  const canSeeOrgDash   = isExec;                          // org-wide eagle-eye (Exec; admin uses admin console)
 
-  const ALL_TABS = ["my","team","flags","kad","manage","projects","resources","org"];
+  // Role-minimal model (Line Manager + Project Lead deferred):
+  //   Employee      → My work
+  //   HRBP          → My work + Register
+  //   KAD Director  → My work + Register + KAD dashboard + Projects
+  //   Executive/CEO → Organisation
+  const canRegister = isHRBP || isDirector;   // allocate/target/confirm
+  const canKadDash  = isDirector;             // detailed KAD review + sign-off
+  const canProjects = isDirector;             // projects + clients
+  const canOrg      = isExec;                 // cross-KAD consolidation
+
+  const ALL_TABS = ["my","register","kad","projects","org"];
   const pathTab = location.pathname.replace(/^\//, "") || "my";
-  const tab = ALL_TABS.includes(pathTab) ? pathTab : "my";
+  // accept legacy paths so old bookmarks still land somewhere sensible
+  const legacy = { team: "register", manage: "register", flags: "kad", resources: "kad" };
+  const tab = ALL_TABS.includes(pathTab) ? pathTab : (legacy[pathTab] || "my");
   const setTab = (t) => navigate(`/${t}`);
 
   // Auto-select the first Open period (fallback to most recent non-closed)
@@ -558,7 +591,6 @@ export default function StaffDashboard() {
   }, [periods, selectedPeriod]);
 
   const roles = actor?.roles || [];
-  const hasRoleActions = canSetTargets() || canConfirm() || canApprove() || canSignoff() || canConfirmSO();
 
   // Allocations for the inbox — pull both "mine" and (if a manager) my whole team's
   const { data: inboxAllocs, reload: reloadInbox } = useAsync(
@@ -570,39 +602,27 @@ export default function StaffDashboard() {
   const navItems = [
     { key: "my", label: "My work", mobileLabel: "My work", icon: Icons.allocations,
       active: tab === "my", onClick: () => setTab("my") },
-    ...(hasRoleActions ? [
-      { key: "team", label: "My team", mobileLabel: "Team", icon: Icons.team,
-        active: tab === "team", onClick: () => setTab("team") },
+    ...(canRegister ? [
+      { key: "register", label: "Register", mobileLabel: "Register", icon: Icons.team,
+        active: tab === "register", onClick: () => setTab("register") },
     ] : []),
-    ...(canSeeKadDash ? [
-      { key: "kad", label: "KAD", mobileLabel: "KAD", icon: Icons.home,
+    ...(canKadDash ? [
+      { key: "kad", label: "KAD dashboard", mobileLabel: "KAD", icon: Icons.home,
         active: tab === "kad", onClick: () => setTab("kad") },
     ] : []),
-    ...(canSeeOrgDash ? [
-      { key: "org", label: "Org", mobileLabel: "Org", icon: Icons.home,
-        active: tab === "org", onClick: () => setTab("org") },
-    ] : []),
-    ...(isOperational ? [
+    ...(canProjects ? [
       { key: "projects", label: "Projects", mobileLabel: "Projects", icon: Icons.allocations,
         active: tab === "projects", onClick: () => setTab("projects") },
     ] : []),
-    ...(hasRoleActions ? [
-      { key: "flags", label: "Flags", mobileLabel: "Flags", icon: Icons.flags,
-        active: tab === "flags", onClick: () => setTab("flags") },
-    ] : []),
-    ...(canSeeResources ? [
-      { key: "resources", label: "Resources", mobileLabel: "Resources", icon: Icons.team,
-        active: tab === "resources", onClick: () => setTab("resources") },
-    ] : []),
-    ...(isOperational ? [
-      { key: "manage", label: "Manage", mobileLabel: "Manage", icon: Icons.setup,
-        active: tab === "manage", onClick: () => setTab("manage") },
+    ...(canOrg ? [
+      { key: "org", label: "Organisation", mobileLabel: "Org", icon: Icons.home,
+        active: tab === "org", onClick: () => setTab("org") },
     ] : []),
   ];
 
-  const titleMap = { my: "My work", team: "My team", flags: "Flags",
-                     kad: "KAD overview", manage: "Manage", projects: "Projects",
-                     resources: "Resource visibility", org: "Organisation overview" };
+  const titleMap = { my: "My work", register: "Register",
+                     kad: "KAD dashboard", projects: "Projects",
+                     org: "Organisation overview" };
 
   return (
     <AppShell title={titleMap[tab] || "My work"} navItems={navItems}>
@@ -635,14 +655,11 @@ export default function StaffDashboard() {
 
       {periods && periods.length > 0 && (
         <>
-          {tab === "my"    && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
-          {tab === "team"  && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
-          {tab === "flags" && <FlagManagement actor={actor} selectedPeriod={selectedPeriod} />}
-          {tab === "kad"   && <KadDashboard selectedPeriod={selectedPeriod} />}
-          {tab === "manage" && <ManageView actor={actor} selectedPeriod={selectedPeriod} />}
+          {tab === "my"       && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
+          {tab === "register" && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
+          {tab === "kad"      && <KadDashboard actor={actor} selectedPeriod={selectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "projects" && <ProjectWorkspace actor={actor} />}
-          {tab === "resources" && <ResourceVisibility selectedPeriod={selectedPeriod} />}
-          {tab === "org" && <OrgDashboard selectedPeriod={selectedPeriod} />}
+          {tab === "org"      && <OrgDashboard selectedPeriod={selectedPeriod} />}
         </>
       )}
     </AppShell>

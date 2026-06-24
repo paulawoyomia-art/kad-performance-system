@@ -53,20 +53,74 @@ function Modal({ title, onClose, children, footer }) {
 // ════════════════════════════════════════════════════════════════════════════
 // 1. DIRECTOR KAD DASHBOARD
 // ════════════════════════════════════════════════════════════════════════════
-export function KadDashboard({ selectedPeriod }) {
-  const { data, loading } = useAsync(
+export function KadDashboard({ actor, selectedPeriod, onAnyAction }) {
+  const { data, loading, reload } = useAsync(
     () => dashApi.kad(selectedPeriod || null),
     [selectedPeriod]
   );
+  const { data: allocs, reload: reloadAllocs } = useAsync(
+    () => selectedPeriod ? allocApi.list(selectedPeriod) : Promise.resolve([]),
+    [selectedPeriod]
+  );
+  const [signing, setSigning] = useState(false);
+  const [signErr, setSignErr] = useState("");
+  const [showCrossKad, setShowCrossKad] = useState(false);
+  const [showProjects, setShowProjects] = useState(false);
 
   if (loading) return <div className="loading-center"><span className="spinner" /></div>;
   if (!data) return <div className="empty"><p className="empty-title">No dashboard data</p></div>;
 
   const { kad, totals, employees, projects } = data;
 
+  // KAD sign-off readiness from the live allocations
+  const rows = allocs || [];
+  const awaitingHrbp = rows.filter(a => a.target_locked === 1 && a.hrbp_signoff_confirmation !== 1).length;
+  const readyToSeal  = rows.filter(a => a.hrbp_signoff_confirmation === 1 && a.director_signoff_confirmation !== 1).length;
+  const sealed       = rows.filter(a => a.director_signoff_confirmation === 1).length;
+  const canSeal = awaitingHrbp === 0 && readyToSeal > 0;
+
+  async function seal(fn, label) {
+    setSignErr(""); setSigning(true);
+    try { await fn(); reload(); reloadAllocs(); onAnyAction?.(); }
+    catch (e) { setSignErr(e.message || label + " failed"); }
+    finally { setSigning(false); }
+  }
+
   return (
     <div>
       <h2 className="t-title mb-4">{kad?.kad_name} — live overview</h2>
+
+      {/* KAD sign-off band — the Director's headline action */}
+      <div className="card" style={{ marginBottom: 16, borderLeft: "3px solid var(--accent, #2563eb)" }}>
+        <div className="flex justify-between items-center" style={{ flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <strong>KAD sign-off</strong>
+            <p className="t-caption" style={{ marginTop: 2 }}>
+              {sealed > 0 && <>{sealed} row(s) signed off. </>}
+              {readyToSeal > 0
+                ? <>{readyToSeal} HRBP-confirmed row(s) ready to seal{awaitingHrbp > 0 ? `, but ${awaitingHrbp} still await HRBP confirmation.` : "."}</>
+                : awaitingHrbp > 0
+                  ? <>{awaitingHrbp} row(s) still await HRBP confirmation before you can sign off.</>
+                  : <>Nothing waiting on sign-off.</>}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {canSeal && (
+              <button className="btn btn-primary btn-sm" disabled={signing}
+                onClick={() => seal(() => allocApi.kadSignoff(selectedPeriod), "Sign off")}>
+                Sign off the KAD ({readyToSeal})
+              </button>
+            )}
+            {sealed > 0 && (
+              <button className="btn btn-ghost btn-sm" disabled={signing}
+                onClick={() => seal(() => allocApi.kadUnsignoff(selectedPeriod), "Reopen")}>
+                Reopen sign-off
+              </button>
+            )}
+          </div>
+        </div>
+        {signErr && <p className="form-error" style={{ marginTop: 8 }}>{signErr}</p>}
+      </div>
 
       {/* Totals band */}
       <div className="tile-grid">
@@ -81,7 +135,7 @@ export function KadDashboard({ selectedPeriod }) {
         </div>
       </div>
 
-      {/* Per-project */}
+      {/* Per-project (read-only summary) */}
       <h3 className="t-subtitle mt-4 mb-2">Projects</h3>
       {projects?.length === 0 && <div className="empty"><p className="empty-body">No projects in this KAD yet.</p></div>}
       {projects?.map(p => (
@@ -125,6 +179,24 @@ export function KadDashboard({ selectedPeriod }) {
           </table>
         </div>
       </div>
+
+      {/* Manage projects + clients (folded in — also available on the Projects tab) */}
+      <div className="flex justify-between items-center mt-4 mb-2">
+        <h3 className="t-subtitle" style={{ margin: 0 }}>Manage projects & clients</h3>
+        <button className="btn btn-ghost btn-sm" onClick={() => setShowProjects(s => !s)}>
+          {showProjects ? "Hide" : "Open"}
+        </button>
+      </div>
+      {showProjects && <ProjectWorkspace actor={actor} />}
+
+      {/* Cross-KAD utilisation — see how other KADs' people are loaded, per person */}
+      <div className="flex justify-between items-center mt-4 mb-2">
+        <h3 className="t-subtitle" style={{ margin: 0 }}>Utilisation across all KADs</h3>
+        <button className="btn btn-ghost btn-sm" onClick={() => setShowCrossKad(s => !s)}>
+          {showCrossKad ? "Hide" : "Open"}
+        </button>
+      </div>
+      {showCrossKad && <ResourceVisibility selectedPeriod={selectedPeriod} />}
     </div>
   );
 }
@@ -167,30 +239,46 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
   const { data: people } = useAsync(() => allocApi.allocatablePeople(actor?.kad_id || null), []);
   const { data: projects } = useAsync(() => projectsApi.list(), []);
   const { data: periods } = useAsync(() => periodsApi.list(), []);
+  const { data: outputTypes, reload: reloadTypes } = useAsync(() => allocApi.outputTypes(), []);
   const [form, setForm] = useState({ employee_id: "", project_id: "", period_id: defaultPeriod || "", output_metric: "", unit: "" });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [adding, setAdding] = useState(false);                 // "add a new type" inline form open?
+  const [newType, setNewType] = useState({ metric: "", unit: "" });
+  const [addingBusy, setAddingBusy] = useState(false);
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  // Role-matched output suggestions — a starting menu, not a constraint.
-  // The manager can pick one or type their own ("or add a new one").
-  const OUTPUTS_BY_TYPE = {
-    Field: [
-      ["Sites commissioned", "count"], ["Sites surveyed", "count"],
-      ["Faults resolved", "count"], ["Preventive maintenance visits", "count"],
-      ["Fibre laid", "km"], ["Uptime", "%"],
-    ],
-    Support: [
-      ["Tickets closed", "count"], ["First-response SLA met", "%"],
-      ["Reports delivered", "count"], ["Documentation updated", "count"],
-    ],
-    Management: [
-      ["Projects delivered on time", "%"], ["Team utilisation", "%"],
-      ["Client reviews completed", "count"], ["Revenue collected", "₦"],
-    ],
-  };
   const selectedPerson = people?.find(p => String(p.id) === String(form.employee_id));
-  const suggestions = selectedPerson ? (OUTPUTS_BY_TYPE[selectedPerson.staff_type] || []) : [];
+  // Sort the catalog so types matching this person's staff_type float to the top.
+  const sortedTypes = (outputTypes || []).slice().sort((a, b) => {
+    if (selectedPerson) {
+      const am = a.staff_type === selectedPerson.staff_type ? 0 : 1;
+      const bm = b.staff_type === selectedPerson.staff_type ? 0 : 1;
+      if (am !== bm) return am - bm;
+    }
+    return a.metric.localeCompare(b.metric);
+  });
+
+  // When a catalog type is picked, fill metric + its default unit in one step.
+  function pickType(id) {
+    const t = (outputTypes || []).find(x => String(x.id) === String(id));
+    if (t) { f("output_metric", t.metric); f("unit", t.unit || ""); }
+    else { f("output_metric", ""); f("unit", ""); }
+  }
+
+  async function saveNewType() {
+    const metric = newType.metric.trim();
+    if (!metric) return;
+    setAddingBusy(true); setErr("");
+    try {
+      const res = await allocApi.addOutputType({ metric, unit: newType.unit.trim() || null,
+        staff_type: selectedPerson?.staff_type || null });
+      await reloadTypes();
+      // select the newly-added (or existing) type
+      f("output_metric", res.output_type.metric); f("unit", res.output_type.unit || "");
+      setAdding(false); setNewType({ metric: "", unit: "" });
+    } catch (e) { setErr(e.message); } finally { setAddingBusy(false); }
+  }
 
   async function save() {
     setErr("");
@@ -207,6 +295,9 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
       onDone?.();
     } catch (e) { setErr(e.message); } finally { setSaving(false); }
   }
+
+  // id of the currently-selected catalog row (for the <select> value)
+  const selectedTypeId = (outputTypes || []).find(t => t.metric === form.output_metric)?.id || "";
 
   return (
     <Modal title="New allocation" onClose={onClose}
@@ -234,25 +325,57 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
           </select>
         </div>
       </div>
-      <div className="grid-2">
-        <div className="form-group"><label className="form-label">Output metric <span>*</span></label>
-          {suggestions.length > 0 && (
-            <div className="flex gap-1 mb-2" style={{ flexWrap: "wrap" }}>
-              {suggestions.map(([m, u]) => (
-                <button key={m} type="button" className="btn btn-ghost btn-sm"
-                  style={{ padding: "2px 8px", fontSize: "0.8em" }}
-                  onClick={() => { f("output_metric", m); f("unit", u); }}>
-                  + {m}
-                </button>
-              ))}
-            </div>
+
+      {/* Output metric — pick from the catalog, or add a new type inline */}
+      <div className="form-group">
+        <div className="flex justify-between items-center">
+          <label className="form-label" style={{ margin: 0 }}>Output metric <span>*</span></label>
+          {!adding && (
+            <button type="button" className="btn btn-ghost btn-sm" style={{ padding: "2px 8px" }}
+              onClick={() => { setAdding(true); setNewType({ metric: "", unit: "" }); }}>
+              + Add a new type
+            </button>
           )}
-          <input className="form-input" value={form.output_metric} onChange={e => f("output_metric", e.target.value)} placeholder="e.g. Sites commissioned" />
-          {selectedPerson && suggestions.length > 0 && <p className="t-caption mt-1">Suggestions for {selectedPerson.staff_type} roles — or type your own.</p>}
         </div>
-        <div className="form-group"><label className="form-label">Unit</label>
-          <input className="form-input" value={form.unit} onChange={e => f("unit", e.target.value)} placeholder="e.g. count, km, %" />
-        </div>
+
+        {!adding && (
+          <>
+            <select className="form-select" value={selectedTypeId} onChange={e => pickType(e.target.value)}>
+              <option value="">Select an output type…</option>
+              {sortedTypes.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.metric}{t.unit ? ` (${t.unit})` : ""}{selectedPerson && t.staff_type === selectedPerson.staff_type ? " ★" : ""}
+                </option>
+              ))}
+            </select>
+            {selectedPerson && <p className="t-caption mt-1">★ = suited to {selectedPerson.staff_type} roles. Pick any, or add a new one.</p>}
+          </>
+        )}
+
+        {adding && (
+          <div className="card" style={{ padding: 12, marginTop: 6 }}>
+            <div className="grid-2">
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">New metric</label>
+                <input className="form-input" autoFocus value={newType.metric}
+                  onChange={e => setNewType(n => ({ ...n, metric: e.target.value }))}
+                  placeholder="e.g. POs received" />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Unit</label>
+                <input className="form-input" value={newType.unit}
+                  onChange={e => setNewType(n => ({ ...n, unit: e.target.value }))}
+                  placeholder="count, %, ₦, km" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button type="button" className="btn btn-primary btn-sm" disabled={addingBusy || !newType.metric.trim()}
+                onClick={saveNewType}>{addingBusy ? "Adding…" : "Add & use"}</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAdding(false)}>Cancel</button>
+            </div>
+            <p className="t-caption mt-2">Adds it to the shared pick-list for everyone, and selects it here.</p>
+          </div>
+        )}
       </div>
       {err && <div className="alert alert-danger">{err}</div>}
     </Modal>
