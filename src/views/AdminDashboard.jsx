@@ -324,14 +324,6 @@ function PeopleTab() {
               <option>Active</option><option>Inactive</option>
             </select>
           </div>
-          <div className="form-group">
-            <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
-              <input type="checkbox" checked={!!editing.is_hr_manager} onChange={e=>edf("is_hr_manager",e.target.checked)}
-                style={{width:16,height:16,accentColor:"var(--orbit)",cursor:"pointer"}}/>
-              <span style={{fontWeight:500,fontSize:".929rem"}}>HR Manager</span>
-              <span className="t-caption" style={{color:"var(--text-secondary)"}}>Can manage people, roles &amp; allocations</span>
-            </label>
-          </div>
           {err && <div className="alert alert-danger">{err}</div>}
         </Modal>
       )}
@@ -362,14 +354,6 @@ function PeopleTab() {
             </div>
           </div>
           <div className="form-group"><label className="form-label">Work email <span>*</span></label><input className="form-input" type="email" value={form.email} onChange={e=>f("email",e.target.value)}/></div>
-          <div className="form-group">
-            <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
-              <input type="checkbox" checked={form.is_hr_manager} onChange={e=>f("is_hr_manager",e.target.checked)}
-                style={{width:16,height:16,accentColor:"var(--orbit)",cursor:"pointer"}}/>
-              <span style={{fontWeight:500,fontSize:".929rem"}}>HR Manager</span>
-              <span className="t-caption" style={{color:"var(--text-secondary)"}}>Can manage people, roles &amp; allocations</span>
-            </label>
-          </div>
           {err && <div className="alert alert-danger">{err}</div>}
         </Modal>
       )}
@@ -437,6 +421,7 @@ function PeriodsTab() {
   const { data: kads } = useAsync(() => setup.listKads());
   const { data: allPeriods, loading, reload } = useAsync(() => setup.listPeriods());
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [form, setForm]   = useState({period_label:"",kad_id:"",start_date:"",end_date:""});
   const [err, setErr]     = useState("");
   const [saving, setSaving] = useState(false);
@@ -473,6 +458,8 @@ function PeriodsTab() {
                   <div className="flex gap-2">
                     {p.status==="Drafting" && <button className="btn btn-secondary btn-sm" onClick={()=>act(periodsApi.open, p.id)}>Open</button>}
                     {p.status==="Open"     && <button className="btn btn-danger btn-sm"    onClick={()=>act(periodsApi.close, p.id)}>Close</button>}
+                    {p.status==="Drafting" && <button className="btn btn-ghost btn-sm" onClick={()=>setEditing(p)}>Edit</button>}
+                    {p.status==="Drafting" && <button className="btn btn-danger btn-sm" onClick={()=>{ if(confirm(`Delete period "${p.period_label}"?`)) act(setup.deletePeriod, p.id); }}>Delete</button>}
                     {actionErr[p.id] && <span className="t-caption" style={{color:"var(--danger)"}}>{actionErr[p.id]}</span>}
                   </div>
                 </td>
@@ -502,11 +489,44 @@ function PeriodsTab() {
           {err&&<div className="alert alert-danger">{err}</div>}
         </Modal>
       )}
+      {editing && <EditPeriodModal period={editing}
+        onClose={()=>setEditing(null)} onDone={()=>{setEditing(null);reload();}} />}
     </div>
   );
 }
 
-// ── Projects tab ──────────────────────────────────────────────────────────────
+function EditPeriodModal({ period, onClose, onDone }) {
+  const [form, setForm] = useState({
+    period_label: period.period_label || "",
+    start_date: period.start_date || "",
+    end_date: period.end_date || "",
+  });
+  const [err, setErr] = useState(""); const [saving, setSaving] = useState(false);
+  const f = (k,v) => setForm(p=>({...p,[k]:v}));
+  async function save(){
+    setErr("");
+    if (!form.period_label.trim() || !form.start_date || !form.end_date) { setErr("All fields are required."); return; }
+    setSaving(true);
+    try { await setup.updatePeriod(period.id, form); onDone?.(); }
+    catch(e){ setErr(e.message); } finally { setSaving(false); }
+  }
+  return (
+    <Modal title={`Edit — ${period.period_label}`} onClose={onClose}
+      footer={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?<span className="spinner" style={{width:14,height:14}}/>:"Save changes"}</button></>}>
+      <div className="form-group"><label className="form-label">Period label <span>*</span></label>
+        <input className="form-input" value={form.period_label} onChange={e=>f("period_label",e.target.value)} autoFocus/></div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Start date <span>*</span></label>
+          <input className="form-input" type="date" value={form.start_date} onChange={e=>f("start_date",e.target.value)}/></div>
+        <div className="form-group"><label className="form-label">End date <span>*</span></label>
+          <input className="form-input" type="date" value={form.end_date} onChange={e=>f("end_date",e.target.value)}/></div>
+      </div>
+      <p className="t-caption">Only Drafting periods can be edited. The KAD scope is fixed at creation.</p>
+      {err&&<div className="alert alert-danger">{err}</div>}
+    </Modal>
+  );
+}
 function ProjectsTab() {
   const { data: clients } = useAsync(() => setup.listClients());
   const { data: people } = useAsync(() => setup.listPeople());

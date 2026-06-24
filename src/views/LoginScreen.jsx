@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
 export default function LoginScreen() {
-  const { login, isAdmin } = useAuth();
+  const { login, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [accountType, setAccountType] = useState("employee");
   const [email, setEmail]       = useState("");
@@ -17,6 +17,19 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const actor = await login(email.trim().toLowerCase(), password);
+      // Enforce the Employee/Administrator choice so it's not just cosmetic.
+      if (accountType === "admin" && !actor.is_admin) {
+        await logout();
+        setError("That's an employee account. Switch to the Employee tab to sign in.");
+        setLoading(false);
+        return;
+      }
+      if (accountType === "employee" && actor.is_admin) {
+        await logout();
+        setError("That's an administrator account. Switch to the Administrator tab to sign in.");
+        setLoading(false);
+        return;
+      }
       if (actor.must_change_password) navigate("/setup-account");
       else if (actor.is_admin)        navigate("/admin/kads");
       else                            navigate("/my");
@@ -93,6 +106,7 @@ export default function LoginScreen() {
             {["employee", "admin"].map(type => (
               <button
                 key={type}
+                type="button"
                 onClick={() => { setAccountType(type); setError(""); }}
                 style={{
                   padding: "8px",
