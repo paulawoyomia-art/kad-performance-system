@@ -130,12 +130,14 @@ export const allocations = {
     return req("GET", `/allocations?${params}`);
   },
   create: (body)  => req("POST", "/allocations",                { body }),
-  // TWO-LAYER MODEL — Awaiting ack → Acknowledged → HRBP confirmed → KAD signed off
+  // THREE-ACTOR CHAIN — KAD work-confirm (row) → HRBP completeness → KAD report-to-org
   setTarget:      (id, target_value)  => req("POST", `/allocations/${id}/target`,  { body: { target_value } }), // HRBP/KAD allocate
   acknowledge:    (id)                => req("POST", `/allocations/${id}/target/acknowledge`),  // employee
-  confirm:        (id)                => req("POST", `/allocations/${id}/confirm`),    // HRBP confirms row
+  confirm:        (id)                => req("POST", `/allocations/${id}/confirm`),    // KAD Director: Work confirmed (row)
   unconfirm:      (id)                => req("POST", `/allocations/${id}/unconfirm`),  // reopen row
-  kadSignoff:     (period)            => req("POST", `/kad/signoff?period=${period}`),   // KAD seals whole KAD
+  hrbpComplete:   (period)            => req("POST", `/kad/hrbp-complete?period=${period}`),    // HRBP: cycle complete
+  hrbpUncomplete: (period)            => req("POST", `/kad/hrbp-uncomplete?period=${period}`),
+  kadSignoff:     (period)            => req("POST", `/kad/signoff?period=${period}`),   // KAD: report to org
   kadUnsignoff:   (period)            => req("POST", `/kad/unsignoff?period=${period}`),
   // Edit workflow (still available for changing a locked target)
   requestEdit:    (id, body)          => req("POST", `/allocations/${id}/edits`,            { body }),
