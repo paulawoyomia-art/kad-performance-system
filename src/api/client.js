@@ -128,10 +128,13 @@ export const allocations = {
     return req("GET", `/allocations?${params}`);
   },
   create: (body)  => req("POST", "/allocations",                { body }),
-  // COLLAPSED 2-STATE MODEL — Allocated → Confirmed
-  setTarget:      (id, target_value)  => req("POST", `/allocations/${id}/target`,  { body: { target_value } }), // → Allocated
-  confirm:        (id)                => req("POST", `/allocations/${id}/confirm`),    // → Confirmed (HRBP/Director)
-  unconfirm:      (id)                => req("POST", `/allocations/${id}/unconfirm`),  // → back to Allocated
+  // TWO-LAYER MODEL — Awaiting ack → Acknowledged → HRBP confirmed → KAD signed off
+  setTarget:      (id, target_value)  => req("POST", `/allocations/${id}/target`,  { body: { target_value } }), // HRBP/KAD allocate
+  acknowledge:    (id)                => req("POST", `/allocations/${id}/target/acknowledge`),  // employee
+  confirm:        (id)                => req("POST", `/allocations/${id}/confirm`),    // HRBP confirms row
+  unconfirm:      (id)                => req("POST", `/allocations/${id}/unconfirm`),  // reopen row
+  kadSignoff:     (period)            => req("POST", `/kad/signoff?period=${period}`),   // KAD seals whole KAD
+  kadUnsignoff:   (period)            => req("POST", `/kad/unsignoff?period=${period}`),
   // Edit workflow (still available for changing a locked target)
   requestEdit:    (id, body)          => req("POST", `/allocations/${id}/edits`,            { body }),
   approveEdit:    (editId)            => req("POST", `/edits/${editId}/approve`),
@@ -151,6 +154,9 @@ export const allocations = {
   allocatablePeople: (kadId)          => req("GET", `/people/allocatable${kadId ? `?kad=${kadId}` : ""}`),
   // Clients in the actor's KAD (for project creation by operational roles)
   myClients: (kadId)                  => req("GET", `/clients/mine${kadId ? `?kad=${kadId}` : ""}`),
+  // Output-type catalog (the allocation pick-list)
+  outputTypes:        ()              => req("GET", "/output-types"),
+  addOutputType:      (body)          => req("POST", "/output-types", { body }),
   // Proof needs auth, so fetch as a blob and return an object URL the UI can show/open
   fetchProof: async (id, subId) => {
     const token = getToken();
