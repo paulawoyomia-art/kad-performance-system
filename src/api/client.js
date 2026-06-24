@@ -95,6 +95,8 @@ export const setup = {
   // Periods
   listPeriods:     (kadId)    => req("GET",   `/setup/periods${kadId ? `?kad=${kadId}` : ""}`),
   createPeriod:    (body)     => req("POST",  "/setup/periods",         { body }),
+  updatePeriod:    (id, body) => req("PATCH", `/setup/periods/${id}`,  { body }),
+  deletePeriod:    (id)       => req("DELETE",`/setup/periods/${id}`),
 
   // Allocations
   listAllocations:    (period) => req("GET", `/allocations${period ? `?period=${period}` : ""}`),
