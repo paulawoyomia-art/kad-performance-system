@@ -512,6 +512,7 @@ function ProjectsTab() {
   const { data: people } = useAsync(() => setup.listPeople());
   const { data: projects, loading, reload } = useAsync(() => setup.listProjects());
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   async function del(p) {
     if (!confirm(`Delete project "${p.project_name}"? If it has allocations, deletion is blocked — deactivate it instead.`)) return;
@@ -551,7 +552,12 @@ function ProjectsTab() {
                     <span className="t-mono t-caption">{((p.collection_pct||0)*100).toFixed(0)}%</span>
                   </div>
                 </td>
-                <td><button className="btn btn-danger btn-sm" onClick={()=>del(p)}>Delete</button></td>
+                <td>
+                  <div className="flex gap-2">
+                    <button className="btn btn-secondary btn-sm" onClick={()=>setEditing(p)}>Edit</button>
+                    <button className="btn btn-danger btn-sm" onClick={()=>del(p)}>Delete</button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -559,6 +565,8 @@ function ProjectsTab() {
       )}
       {adding && <AddProjectModal clients={clients} people={people}
         onClose={()=>setAdding(false)} onDone={()=>{setAdding(false);reload();}} />}
+      {editing && <EditProjectModal project={editing} clients={clients} people={people}
+        onClose={()=>setEditing(null)} onDone={()=>{setEditing(null);reload();}} />}
     </div>
   );
 }
@@ -600,11 +608,70 @@ function AddProjectModal({ clients, people, onClose, onDone }) {
       <div className="grid-2">
         <div className="form-group"><label className="form-label">Contract value (₦)</label>
           <input className="form-input" type="number" value={form.contract_value} onChange={e=>f("contract_value",e.target.value)} placeholder="0"/></div>
-        <div className="form-group"><label className="form-label">Project Lead</label>
+        <div className="form-group"><label className="form-label">Project Lead <span className="t-caption" style={{fontWeight:400}}>(optional — assign later)</span></label>
           <select className="form-select" value={form.project_lead_id} onChange={e=>f("project_lead_id",e.target.value)}>
             <option value="">None</option>
             {people?.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
           </select></div>
+      </div>
+      {err&&<div className="alert alert-danger">{err}</div>}
+    </Modal>
+  );
+}
+
+function EditProjectModal({ project, clients, people, onClose, onDone }) {
+  const [form, setForm] = useState({
+    project_name: project.project_name || "",
+    status: project.status || "Active",
+    contract_value: project.contract_value ?? "",
+    revenue_collected: project.revenue_collected ?? "",
+    project_lead_id: project.project_lead_id ? String(project.project_lead_id) : "",
+  });
+  const [err, setErr] = useState(""); const [saving, setSaving] = useState(false);
+  const f = (k,v) => setForm(p=>({...p,[k]:v}));
+  const STATUSES = ["Prospecting","Negotiation","Awarded","Active","Closing","On Hold","Completed"];
+  // Only people in the project's KAD make sense as lead
+  const eligible = (people || []).filter(p => p.kad_id === project.kad_id);
+  async function save(){
+    setErr("");
+    if (!form.project_name.trim()) { setErr("Project name is required."); return; }
+    setSaving(true);
+    try {
+      await setup.updateProject(project.id, {
+        project_name: form.project_name.trim(),
+        status: form.status,
+        contract_value: form.contract_value === "" ? 0 : Number(form.contract_value),
+        revenue_collected: form.revenue_collected === "" ? 0 : Number(form.revenue_collected),
+        project_lead_id: form.project_lead_id ? Number(form.project_lead_id) : null,
+      });
+      onDone?.();
+    } catch(e){ setErr(e.message); } finally { setSaving(false); }
+  }
+  return (
+    <Modal title={`Edit — ${project.project_name}`} onClose={onClose}
+      footer={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving||!form.project_name.trim()}>
+          {saving?<span className="spinner" style={{width:14,height:14}}/>:"Save changes"}</button></>}>
+      <div className="form-group"><label className="form-label">Project name <span>*</span></label>
+        <input className="form-input" value={form.project_name} onChange={e=>f("project_name",e.target.value)}/></div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Status</label>
+          <select className="form-select" value={form.status} onChange={e=>f("status",e.target.value)}>
+            {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+          </select></div>
+        <div className="form-group"><label className="form-label">Project Lead</label>
+          <select className="form-select" value={form.project_lead_id} onChange={e=>f("project_lead_id",e.target.value)}>
+            <option value="">None</option>
+            {eligible.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
+          </select>
+          {eligible.length===0 && <p className="t-caption mt-1">No employees in this KAD yet — add people first, then come back to assign a lead.</p>}
+        </div>
+      </div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Contract value (₦)</label>
+          <input className="form-input" type="number" value={form.contract_value} onChange={e=>f("contract_value",e.target.value)} placeholder="0"/></div>
+        <div className="form-group"><label className="form-label">Revenue collected (₦)</label>
+          <input className="form-input" type="number" value={form.revenue_collected} onChange={e=>f("revenue_collected",e.target.value)} placeholder="0"/></div>
       </div>
       {err&&<div className="alert alert-danger">{err}</div>}
     </Modal>
