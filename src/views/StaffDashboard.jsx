@@ -4,7 +4,7 @@ import AppShell, { Icons } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
 import { allocations as allocApi, periods as periodsApi, setup, flags as flagsApi } from "../api/client";
 import { KadDashboard, ManageView, FlagManagement, ProjectWorkspace, SubmissionReview,
-         NewAllocationModal, NewProjectModal, ResourceVisibility, OrgDashboard } from "./ManagerViews";
+         NewAllocationModal, NewProjectModal, ResourceVisibility, OrgDashboard, ConsolidationView } from "./ManagerViews";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function useAsync(fn, deps = []) {
@@ -227,7 +227,18 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
         </div>
       )}
 
-      {/* Actions — TWO-LAYER MODEL */}
+      {/* HRBP flag — visible to everyone on the row; raised by HRBP, cleared by HRBP/KAD */}
+      {alloc.hrbp_flag_note && (
+        <div className="alert alert-warning" style={{ marginBottom: 10 }}>
+          <strong>⚑ HRBP flagged for the KAD:</strong> {alloc.hrbp_flag_note}
+          {(isHRBP || isDir) && (
+            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8, padding: "2px 6px" }} disabled={busy}
+              onClick={() => act(() => allocApi.hrbpUnflag(alloc.id), "Clear flag")}>Clear</button>
+          )}
+        </div>
+      )}
+
+      {/* Actions — three-actor chain */}
       <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
         {/* HRBP / KAD allocate: set a target. */}
         {!hasTarget && (isHRBP || isDir) && (
@@ -259,6 +270,14 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
         {locked && !isOwner && (isHRBP || isDir) && (
           <button className="btn btn-ghost btn-sm" onClick={() => setReviewing(true)}>
             Review work
+          </button>
+        )}
+
+        {/* HRBP raises a row for the KAD's attention (can't query, but can flag). */}
+        {locked && !isOwner && isHRBP && !reported && !alloc.hrbp_flag_note && (
+          <button className="btn btn-ghost btn-sm" disabled={busy}
+            onClick={() => { const note = prompt("Flag this row for the KAD Director — what should they look at?"); if (note && note.trim()) act(() => allocApi.hrbpFlag(alloc.id, note.trim()), "Flag"); }}>
+            ⚑ Flag for KAD
           </button>
         )}
 
@@ -625,7 +644,7 @@ export default function StaffDashboard() {
   const canProjects = isDirector;             // projects + clients
   const canOrg      = isExec;                 // cross-KAD consolidation
 
-  const ALL_TABS = ["my","register","kad","projects","org"];
+  const ALL_TABS = ["my","register","consolidation","kad","projects","org"];
   const pathTab = location.pathname.replace(/^\//, "") || "my";
   // accept legacy paths so old bookmarks still land somewhere sensible
   const legacy = { team: "register", manage: "register", flags: "kad", resources: "kad" };
@@ -656,6 +675,8 @@ export default function StaffDashboard() {
     ...(canRegister ? [
       { key: "register", label: "Register", mobileLabel: "Register", icon: Icons.team,
         active: tab === "register", onClick: () => setTab("register") },
+      { key: "consolidation", label: "Consolidation", mobileLabel: "Consol.", icon: Icons.periods,
+        active: tab === "consolidation", onClick: () => setTab("consolidation") },
     ] : []),
     ...(canKadDash ? [
       { key: "kad", label: "KAD dashboard", mobileLabel: "KAD", icon: Icons.home,
@@ -671,7 +692,7 @@ export default function StaffDashboard() {
     ] : []),
   ];
 
-  const titleMap = { my: "My work", register: "Register",
+  const titleMap = { my: "My work", register: "Register", consolidation: "KAD Consolidation",
                      kad: "KAD dashboard", projects: "Projects",
                      org: "Organisation overview" };
 
@@ -708,6 +729,7 @@ export default function StaffDashboard() {
         <>
           {tab === "my"       && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "register" && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
+          {tab === "consolidation" && <ConsolidationView selectedPeriod={selectedPeriod} />}
           {tab === "kad"      && <KadDashboard actor={actor} selectedPeriod={selectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "projects" && <ProjectWorkspace actor={actor} />}
           {tab === "org"      && <OrgDashboard selectedPeriod={selectedPeriod} />}

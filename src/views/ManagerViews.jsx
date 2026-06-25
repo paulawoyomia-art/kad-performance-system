@@ -1131,40 +1131,74 @@ export function OrgDashboard({ selectedPeriod }) {
     () => dashApi.org(selectedPeriod || null),
     [selectedPeriod]
   );
+  const [tab, setTab] = useState("summary"); // summary | flags | achievement | narratives
   if (loading) return <div className="loading-center"><span className="spinner" /></div>;
   if (!data) return <div className="empty"><p className="empty-title">No data</p></div>;
-  const { org, kads } = data;
+  const { org, kads, achievement = [], flags = { achievement: [], collection: [], query: [] }, narratives = [], clients = [], projects = [], employees = [] } = data;
+  const flagTotal = (flags.achievement?.length || 0) + (flags.collection?.length || 0) + (flags.query?.length || 0);
+  const bandClass = (b) => ({ "Exceeded": "badge-success", "Met": "badge-success", "Partial": "badge-warning", "Below target": "badge-danger" }[b] || "badge-neutral");
 
-  function exportCsv() {
-    const headers = ["KAD", "Headcount", "Active projects", "Allocations", "Locked", "Avg achievement %", "Contract", "Collected", "Collection %", "Open flags"];
-    const lines = [headers.join(",")];
-    for (const k of kads) {
-      lines.push([
-        `"${k.kad_name}"`, k.headcount, k.active_projects, k.allocations, k.locked,
-        k.avg_achievement == null ? "" : Math.round(k.avg_achievement * 100),
-        k.contract_value, k.revenue_collected,
-        k.collection_pct == null ? "" : Math.round(k.collection_pct * 100),
-        k.open_flags,
-      ].join(","));
-    }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  function csvCell(v) { return `"${String(v ?? "").replace(/"/g, '""')}"`; }
+  function download(name, rows) {
+    const blob = new Blob([rows.map(r => r.map(csvCell).join(",")).join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `org-overview-${selectedPeriod || "all"}.csv`;
-    a.click(); URL.revokeObjectURL(url);
+    a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
+  }
+  function exportCsv() {
+    const tag = selectedPeriod || "all";
+    if (tab === "achievement") {
+      download(`achievement-${tag}.csv`, [
+        ["KAD", "Employee", "Role", "Project", "Metric", "Target", "Actual", "Achievement %", "Band"],
+        ...achievement.map(r => [r.kad_name, r.employee_name, r.role, r.project_name, r.output_metric, r.target_value, r.actual, r.achievement_pct == null ? "" : Math.round(r.achievement_pct * 100), r.band]),
+      ]);
+    } else if (tab === "flags") {
+      download(`flags-${tag}.csv`, [
+        ["Type", "KAD", "Who/Project", "Detail", "Value"],
+        ...flags.achievement.map(r => ["Below 50%", r.kad_name, r.employee_name, `${r.output_metric} (${r.project_name})`, `${Math.round((r.achievement_pct || 0) * 100)}%`]),
+        ...flags.collection.map(r => ["Collection <20%", r.kad_name, r.project_name, r.client_name || "", `${Math.round((r.collection_pct || 0) * 100)}%`]),
+        ...flags.query.map(r => ["Unresolved query", r.kad_name, r.employee_name, `${r.output_metric} (${r.project_name})`, r.query_note || ""]),
+      ]);
+    } else if (tab === "narratives") {
+      download(`ipo-narratives-${tag}.csv`, [
+        ["KAD", "Employee", "Role", "Project", "Metric", "Actual", "Unit", "INPUT", "PROCESS", "OUTPUT", "Blockers"],
+        ...narratives.map(r => [r.kad_name, r.employee_name, r.role, r.project_name, r.output_metric, r.actual, r.unit, r.input, r.process, r.output, r.blockers]),
+      ]);
+    } else if (tab === "clients") {
+      download(`clients-${tag}.csv`, [
+        ["Client", "KAD", "Status", "Projects", "Active projects", "Contract", "Collected", "Collection %"],
+        ...clients.map(r => [r.client_name, r.kad_name, r.status, r.projects, r.active_projects, r.contract_value, r.revenue_collected, r.collection_pct == null ? "" : Math.round(r.collection_pct * 100)]),
+      ]);
+    } else if (tab === "projects") {
+      download(`projects-${tag}.csv`, [
+        ["Project", "Client", "KAD", "Status", "Contract", "Collected", "Collection %", "Headcount", "Rev/head", "Avg achievement %", "Lead"],
+        ...projects.map(r => [r.project_name, r.client_name, r.kad_name, r.status, r.contract_value, r.revenue_collected, r.collection_pct == null ? "" : Math.round(r.collection_pct * 100), r.headcount, r.rev_per_head == null ? "" : Math.round(r.rev_per_head), r.avg_achievement == null ? "" : Math.round(r.avg_achievement * 100), r.project_lead || ""]),
+      ]);
+    } else if (tab === "employees") {
+      download(`employees-${tag}.csv`, [
+        ["Employee", "Code", "Role", "Staff type", "KAD", "Projects", "Allocations", "Submissions", "Avg achievement %"],
+        ...employees.map(r => [r.full_name, r.code, r.role, r.staff_type, r.kad_name, r.projects, r.allocations, r.submissions, r.avg_achievement == null ? "" : Math.round(r.avg_achievement * 100)]),
+      ]);
+    } else {
+      download(`org-summary-${tag}.csv`, [
+        ["KAD", "Headcount", "Active projects", "Targets locked", "Allocations", "Submissions", "Avg achievement %", "Contract", "Collected", "Collection %", "Below 50%", "Below 20% collection", "Open flags"],
+        ...kads.map(k => [k.kad_name, k.headcount, k.active_projects, k.locked, k.allocations, k.submissions, k.avg_achievement == null ? "" : Math.round(k.avg_achievement * 100), k.contract_value, k.revenue_collected, k.collection_pct == null ? "" : Math.round(k.collection_pct * 100), k.below_50, k.below_20, k.open_flags]),
+      ]);
+    }
   }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-2" style={{ flexWrap: "wrap", gap: 8 }}>
         <h2 className="t-title">Organisation overview — all KADs</h2>
-        <button className="btn btn-secondary btn-sm" onClick={exportCsv}>Export CSV</button>
+        <button className="btn btn-secondary btn-sm" onClick={exportCsv}>Export {tab} CSV</button>
       </div>
 
       {/* Org totals */}
       <div className="tile-grid">
         <div className="tile"><div className="tile-value">{org.headcount}</div><div className="tile-label">People</div></div>
         <div className="tile"><div className="tile-value">{org.active_projects}</div><div className="tile-label">Active projects</div></div>
+        <div className="tile"><div className="tile-value">{org.submissions ?? 0}</div><div className="tile-label">Submissions (reported)</div></div>
         <div className="tile"><div className="tile-value">{pct(org.avg_achievement)}</div><div className="tile-label">Avg achievement</div></div>
         <div className="tile"><div className="tile-value">{pct(org.collection_pct)}</div><div className="tile-label">Collection</div></div>
         <div className="tile">
@@ -1172,38 +1206,257 @@ export function OrgDashboard({ selectedPeriod }) {
           <div className="tile-label">Open flags{org.urgent_flags > 0 ? ` (${org.urgent_flags} urgent)` : ""}</div>
         </div>
       </div>
+      <p className="t-caption mt-2 mb-3">Revenue: {money(org.revenue_collected)} collected of {money(org.contract_value)} contracted. Output figures reflect KAD-reported (consolidated) work only.</p>
 
-      <p className="t-caption mt-2 mb-3">Revenue: {money(org.revenue_collected)} collected of {money(org.contract_value)} contracted.</p>
-
-      {/* Per-KAD table */}
-      <h3 className="t-subtitle mb-2">By KAD</h3>
-      <div className="card" style={{ padding: 0 }}>
-        <div className="table-wrap">
-          <table>
-            <thead><tr>
-              <th>KAD</th><th>People</th><th>Projects</th><th>Targets</th>
-              <th>Achievement</th><th>Collection</th><th>Flags</th>
-            </tr></thead>
-            <tbody>
-              {kads.map(k => (
-                <tr key={k.kad_id}>
-                  <td><strong>{k.kad_name}</strong></td>
-                  <td>{k.headcount}</td>
-                  <td>{k.active_projects}</td>
-                  <td>{k.locked}/{k.allocations}</td>
-                  <td>{k.allocations > 0 ? pct(k.avg_achievement) : "—"}</td>
-                  <td>{pct(k.collection_pct)}</td>
-                  <td>
-                    {k.open_flags > 0
-                      ? <span className={`badge ${k.urgent_flags > 0 ? "badge-danger" : "badge-warning"}`}>{k.open_flags}</span>
-                      : <span className="badge badge-success">0</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Section tabs */}
+      <div className="flex gap-2 mb-3" style={{ flexWrap: "wrap" }}>
+        {[["summary", "By KAD"], ["clients", `Clients (${clients.length})`], ["projects", `Projects (${projects.length})`], ["employees", `Employees (${employees.length})`], ["flags", `Flags${flagTotal ? ` (${flagTotal})` : ""}`], ["achievement", "Achievement"], ["narratives", "IPO narratives"]].map(([k, label]) => (
+          <button key={k} className={`btn btn-sm ${tab === k ? "btn-primary" : "btn-secondary"}`} onClick={() => setTab(k)}>{label}</button>
+        ))}
       </div>
+
+      {tab === "summary" && (
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-wrap">
+            <table>
+              <thead><tr>
+                <th>KAD</th><th>People</th><th>Projects</th><th>Targets</th><th>Subs</th>
+                <th>Achievement</th><th>Collection</th><th>Flags</th>
+              </tr></thead>
+              <tbody>
+                {kads.map(k => (
+                  <tr key={k.kad_id}>
+                    <td><strong>{k.kad_name}</strong></td>
+                    <td>{k.headcount}</td>
+                    <td>{k.active_projects}</td>
+                    <td>{k.locked}/{k.allocations}</td>
+                    <td>{k.submissions}</td>
+                    <td>{k.consolidated > 0 ? pct(k.avg_achievement) : "—"}</td>
+                    <td>{pct(k.collection_pct)}</td>
+                    <td>{k.open_flags > 0
+                      ? <span className={`badge ${k.urgent_flags > 0 ? "badge-danger" : "badge-warning"}`}>{k.open_flags}</span>
+                      : <span className="badge badge-success">0</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === "clients" && (
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Client</th><th>KAD</th><th>Projects</th><th>Contract</th><th>Collected</th><th>Collection</th></tr></thead>
+              <tbody>
+                {clients.length === 0 && <tr><td colSpan={6}><span className="t-caption">No clients yet.</span></td></tr>}
+                {clients.map(c => (
+                  <tr key={c.id}>
+                    <td><strong>{c.client_name}</strong>{c.status !== "Active" && <span className="badge badge-neutral" style={{ marginLeft: 6 }}>{c.status}</span>}</td>
+                    <td>{c.kad_name}</td>
+                    <td>{c.active_projects}/{c.projects}</td>
+                    <td>{money(c.contract_value)}</td>
+                    <td>{money(c.revenue_collected)}</td>
+                    <td>{c.collection_pct == null ? "—" : <span className={`badge ${c.collection_pct < 0.2 ? "badge-danger" : c.collection_pct < 0.5 ? "badge-warning" : "badge-success"}`}>{pct(c.collection_pct)}</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === "projects" && (
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Project</th><th>Client</th><th>KAD</th><th>Status</th><th>Contract</th><th>Collected</th><th>Collection</th><th>Heads</th><th>Rev/head</th><th>Achievement</th><th>Lead</th></tr></thead>
+              <tbody>
+                {projects.length === 0 && <tr><td colSpan={11}><span className="t-caption">No projects yet.</span></td></tr>}
+                {projects.map(p => (
+                  <tr key={p.id}>
+                    <td><strong>{p.project_name}</strong>{p.below_collection && <span title="Below 20% collection" style={{ color: "var(--danger)", marginLeft: 4 }}>⚑</span>}</td>
+                    <td>{p.client_name}</td>
+                    <td>{p.kad_name}</td>
+                    <td><span className="badge badge-neutral">{p.status}</span></td>
+                    <td>{money(p.contract_value)}</td>
+                    <td>{money(p.revenue_collected)}</td>
+                    <td>{p.collection_pct == null ? "—" : pct(p.collection_pct)}</td>
+                    <td>{p.headcount}</td>
+                    <td>{p.rev_per_head == null ? "—" : money(p.rev_per_head)}</td>
+                    <td>{p.avg_achievement == null ? "—" : pct(p.avg_achievement)}</td>
+                    <td>{p.project_lead || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === "employees" && (
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Employee</th><th>Role</th><th>Type</th><th>KAD</th><th>Projects</th><th>Allocations</th><th>Subs</th><th>Avg achievement</th></tr></thead>
+              <tbody>
+                {employees.length === 0 && <tr><td colSpan={8}><span className="t-caption">No employees yet.</span></td></tr>}
+                {employees.map(e => (
+                  <tr key={e.id}>
+                    <td><strong>{e.full_name}</strong> <span className="t-caption">{e.code}</span></td>
+                    <td>{e.role}</td>
+                    <td>{e.staff_type}</td>
+                    <td>{e.kad_name}</td>
+                    <td>{e.projects}</td>
+                    <td>{e.allocations}</td>
+                    <td>{e.submissions}</td>
+                    <td>{e.avg_achievement == null ? "—" : pct(e.avg_achievement)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === "flags" && (
+        <div>
+          <FlagBlock title="Achievement — employees below 50% of target" empty="No employees below 50% this period."
+            head={["KAD", "Employee", "Project", "Metric", "Target", "Actual", "Achievement"]}
+            rows={flags.achievement.map(r => [r.kad_name, r.employee_name, r.project_name, r.output_metric, r.target_value, r.actual, pct(r.achievement_pct)])} danger />
+          <FlagBlock title="Collection — projects below 20% revenue collection" empty="All active projects above 20% collection."
+            head={["KAD", "Project", "Client", "Contract", "Collected", "Collection", "Lead"]}
+            rows={flags.collection.map(r => [r.kad_name, r.project_name, r.client_name, money(r.contract_value), money(r.revenue_collected), pct(r.collection_pct), r.project_lead || "—"])} />
+          <FlagBlock title="Queries — unresolved output queries" empty="No outstanding queries this period."
+            head={["KAD", "Employee", "Project", "Metric", "Query"]}
+            rows={flags.query.map(r => [r.kad_name, r.employee_name, r.project_name, r.output_metric, r.query_note || "—"])} />
+        </div>
+      )}
+
+      {tab === "achievement" && (
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>KAD</th><th>Employee</th><th>Role</th><th>Project</th><th>Metric</th><th>Target</th><th>Actual</th><th>Achievement</th><th>Band</th></tr></thead>
+              <tbody>
+                {achievement.length === 0 && <tr><td colSpan={9}><span className="t-caption">No reported output yet — figures appear once a KAD reports to org.</span></td></tr>}
+                {achievement.map((r, i) => (
+                  <tr key={i}>
+                    <td>{r.kad_name}</td><td><strong>{r.employee_name}</strong></td><td>{r.role}</td>
+                    <td>{r.project_name}</td><td>{r.output_metric}</td><td>{r.target_value}</td><td>{r.actual}</td>
+                    <td>{pct(r.achievement_pct)}</td>
+                    <td><span className={`badge ${bandClass(r.band)}`}>{r.band}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === "narratives" && (
+        <div>
+          {narratives.length === 0 && <div className="empty"><p className="empty-body">No reported narratives yet — they appear once a KAD reports to org.</p></div>}
+          {narratives.map((r, i) => (
+            <div key={i} className="card" style={{ marginBottom: 10 }}>
+              <div className="flex justify-between items-center" style={{ flexWrap: "wrap", gap: 6 }}>
+                <strong>{r.employee_name}</strong>
+                <span className="t-caption">{r.kad_name} · {r.role}</span>
+              </div>
+              <p className="t-caption" style={{ marginTop: 2 }}>{r.project_name} — <strong>{r.output_metric}</strong>: {r.actual} {r.unit || ""}</p>
+              <div style={{ marginTop: 6, fontSize: 13, display: "grid", gap: 4 }}>
+                <div><strong>INPUT</strong> — {r.input}</div>
+                <div><strong>PROCESS</strong> — {r.process}</div>
+                <div><strong>OUTPUT</strong> — {r.output}</div>
+                {r.blockers && <div style={{ color: "var(--warning)" }}><strong>BLOCKERS</strong> — {r.blockers}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
+function FlagBlock({ title, head, rows, empty, danger }) {
+  return (
+    <div className="card" style={{ marginBottom: 12, borderLeft: `3px solid var(--${danger ? "danger" : "warning"})` }}>
+      <strong>{title}</strong>
+      {rows.length === 0
+        ? <p className="t-caption" style={{ marginTop: 6, color: "var(--success)" }}>{empty}</p>
+        : <div className="table-wrap" style={{ marginTop: 8 }}>
+            <table>
+              <thead><tr>{head.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
+              <tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>)}</tbody>
+            </table>
+          </div>}
+    </div>
+  );
+}
+
+// KAD Consolidation sheet — the per-employee-per-metric formal record. KAD + HRBP.
+export function ConsolidationView({ selectedPeriod }) {
+  const { data, loading } = useAsync(() => dashApi.consolidation(selectedPeriod || null), [selectedPeriod]);
+  const [open, setOpen] = useState({}); // row idx → narrative expanded
+  if (loading) return <div className="loading-center"><span className="spinner" /></div>;
+  const rows = data?.rows || [];
+
+  function exportCsv() {
+    const head = ["#", "KAD", "Full Name", "Role", "Staff Type", "Project", "Output Metric", "Target", "Actual", "Unit", "Variance", "Achievement %", "Rev/Head", "INPUT", "PROCESS", "OUTPUT", "BLOCKERS"];
+    const lines = [head, ...rows.map((r, i) => [i + 1, r.kad_name, r.employee_name, r.role, r.staff_type, r.project_name, r.output_metric, r.target, r.actual, r.unit, r.variance, r.achievement_pct == null ? "" : Math.round(r.achievement_pct * 100), r.rev_per_head == null ? "" : Math.round(r.rev_per_head), r.input, r.process, r.output, r.blockers])];
+    const csv = lines.map(row => row.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a"); a.href = url; a.download = `kad-consolidation-${selectedPeriod || "all"}.csv`; a.click(); URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-2" style={{ flexWrap: "wrap", gap: 8 }}>
+        <h2 className="t-title">KAD Consolidation</h2>
+        <button className="btn btn-secondary btn-sm" onClick={exportCsv}>Export CSV</button>
+      </div>
+      <p className="t-caption mb-3">The formal output record for this period — reported (consolidated) rows only, with variance, achievement, revenue per head, and the IPO narrative.</p>
+      {rows.length === 0
+        ? <div className="empty"><p className="empty-title">Nothing reported yet</p><p className="empty-body">Rows appear here once work is confirmed, the cycle marked complete, and the KAD reported to org.</p></div>
+        : <div className="card" style={{ padding: 0 }}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>#</th><th>Name</th><th>Role</th><th>Project</th><th>Metric</th><th>Target</th><th>Actual</th><th>Var</th><th>Ach.</th><th>Rev/Head</th><th></th></tr></thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <>
+                      <tr key={i}>
+                        <td>{i + 1}</td>
+                        <td><strong>{r.employee_name}</strong></td>
+                        <td>{r.role}</td>
+                        <td>{r.project_name}</td>
+                        <td>{r.output_metric} <span className="t-caption">({r.unit})</span></td>
+                        <td>{r.target}</td>
+                        <td>{r.actual}</td>
+                        <td style={{ color: r.variance < 0 ? "var(--danger)" : "var(--success)" }}>{r.variance > 0 ? "+" : ""}{r.variance}</td>
+                        <td>{r.achievement_pct == null ? "—" : <span className={`badge ${r.achievement_pct >= 0.8 ? "badge-success" : r.achievement_pct >= 0.5 ? "badge-warning" : "badge-danger"}`}>{pct(r.achievement_pct)}</span>}</td>
+                        <td>{r.rev_per_head == null ? "—" : money(r.rev_per_head)}</td>
+                        <td><button className="btn btn-ghost btn-sm" onClick={() => setOpen(o => ({ ...o, [i]: !o[i] }))}>{open[i] ? "Hide" : "IPO"}</button></td>
+                      </tr>
+                      {open[i] && (
+                        <tr key={`n${i}`}><td colSpan={11} style={{ background: "var(--surface-2, #f7f9f9)" }}>
+                          <div style={{ display: "grid", gap: 4, fontSize: 13, padding: "4px 2px" }}>
+                            <div><strong>INPUT</strong> — {r.input || "—"}</div>
+                            <div><strong>PROCESS</strong> — {r.process || "—"}</div>
+                            <div><strong>OUTPUT</strong> — {r.output || "—"}</div>
+                            {r.blockers && <div style={{ color: "var(--warning)" }}><strong>BLOCKERS</strong> — {r.blockers}</div>}
+                          </div>
+                        </td></tr>
+                      )}
+                    </>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>}
+    </div>
+  );
+}
+
+function FlagBlock_UNUSED_REMOVED() { return null; }

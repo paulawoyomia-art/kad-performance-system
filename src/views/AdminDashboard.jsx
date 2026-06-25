@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
+import { OrgDashboard } from "./ManagerViews";
 import { setup, periods as periodsApi } from "../api/client";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -1044,11 +1045,11 @@ function EditScopeModal({ target, onClose, onDone }) {
 }
 
 // ── AdminDashboard ────────────────────────────────────────────────────────────
-const TABS = ["KADs","People","Clients","Role Assignments","Projects","Periods","Allocations"];
+const TABS = ["KADs","People","Clients","Role Assignments","Projects","Periods","Allocations","Organisation"];
 const TAB_SLUGS = {
   "KADs": "kads", "People": "people", "Clients": "clients",
   "Role Assignments": "role-assignments", "Projects": "projects",
-  "Periods": "periods", "Allocations": "allocations",
+  "Periods": "periods", "Allocations": "allocations", "Organisation": "org",
 };
 const SLUG_TABS = Object.fromEntries(Object.entries(TAB_SLUGS).map(([k,v]) => [v,k]));
 
@@ -1061,12 +1062,12 @@ export default function AdminDashboard() {
   const TAB_ICONS = {
     "KADs": Icons.setup, "People": Icons.team, "Clients": Icons.allocations,
     "Role Assignments": Icons.setup, "Projects": Icons.allocations,
-    "Periods": Icons.periods, "Allocations": Icons.allocations,
+    "Periods": Icons.periods, "Allocations": Icons.allocations, "Organisation": Icons.org || Icons.periods,
   };
   const TAB_MOBILE = {
     "KADs": "KADs", "People": "People", "Clients": "Clients",
     "Role Assignments": "Roles", "Projects": "Projects",
-    "Periods": "Periods", "Allocations": "Allocs",
+    "Periods": "Periods", "Allocations": "Allocs", "Organisation": "Org",
   };
 
   const navItems = TABS.map(t => ({
@@ -1088,6 +1089,31 @@ export default function AdminDashboard() {
       {tab==="Projects"         && <ProjectsTab/>}
       {tab==="Periods"          && <PeriodsTab/>}
       {tab==="Allocations"      && <AllocationsTab/>}
+      {tab==="Organisation"     && <AdminOrgTab/>}
     </AppShell>
+  );
+}
+
+// Admin-side org view: same OrgDashboard the Executive sees, with a period picker.
+function AdminOrgTab() {
+  const { data: periods } = useAsync(() => periodsApi.list());
+  const [period, setPeriod] = useState("");
+  useEffect(() => {
+    if (periods && periods.length && !period) {
+      const open = periods.find(p => p.status === "Open") || periods.find(p => p.status !== "Closed") || periods[0];
+      if (open) setPeriod(String(open.id));
+    }
+  }, [periods]);
+  return (
+    <div>
+      <div className="form-group" style={{ maxWidth: 320 }}>
+        <label className="form-label">Period</label>
+        <select className="form-input" value={period} onChange={e => setPeriod(e.target.value)}>
+          <option value="">All periods</option>
+          {(periods || []).map(p => <option key={p.id} value={p.id}>{p.period_label} · {p.status}</option>)}
+        </select>
+      </div>
+      <OrgDashboard selectedPeriod={period || null} />
+    </div>
   );
 }
