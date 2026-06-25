@@ -149,7 +149,7 @@ function SubmitModal({ alloc, onClose, onDone }) {
 }
 
 // ── Allocation row / card ─────────────────────────────────────────────────────
-function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
+function AllocRow({ alloc, actor, roles, onAction, onSubmit, periodOpen = true }) {
   const [actionErr, setActionErr] = useState("");
   const [busy, setBusy]           = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -259,11 +259,14 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit }) {
           <span className="badge badge-warning" style={{ alignSelf: "center" }}>Awaiting employee acknowledgement</span>
         )}
 
-        {/* Employee submits output (proof + IPO), as many times as needed. */}
-        {locked && isOwner && !reported && (
+        {/* Employee submits output (proof + IPO) — only while the period is Open. */}
+        {locked && isOwner && !reported && periodOpen && (
           <button className="btn btn-primary btn-sm" onClick={() => onSubmit?.(alloc)}>
             + Submit output
           </button>
+        )}
+        {locked && isOwner && !reported && !periodOpen && (
+          <span className="t-caption" style={{ color: "var(--text-muted)" }}>Period closed — submissions are locked.</span>
         )}
 
         {/* HRBP + KAD both see the work. HRBP = view only; KAD can query (inside the reviewer). */}
@@ -348,6 +351,7 @@ function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAn
   );
   const [submitting, setSubmitting] = useState(null);
   const refresh = () => { reload(); onAnyAction?.(); };
+  const periodOpen = (periods || []).find(p => String(p.id) === String(selectedPeriod))?.status === "Open";
 
   return (
     <div>
@@ -357,7 +361,7 @@ function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAn
       {selectedPeriod && !loading && allocs?.length === 0 && <div className="empty"><p className="empty-title">Nothing assigned yet</p><p className="empty-body">You don't have any work targets for this period yet. Your manager or HR team will set these up.</p></div>}
       {allocs?.map(a => (
         <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh}
-          onSubmit={setSubmitting} />
+          onSubmit={setSubmitting} periodOpen={periodOpen} />
       ))}
       {submitting && <SubmitModal alloc={submitting} onClose={() => setSubmitting(null)} onDone={refresh} />}
     </div>
@@ -535,7 +539,7 @@ function FlagsView({ periods, selectedPeriod }) {
 }
 
 // ── Action inbox: computes "what's waiting on you right now" ───────────────────
-function ActionInbox({ allocations, actor, roles, onGoTo }) {
+function ActionInbox({ allocations, actor, roles, onGoTo, periodOpen = true }) {
   if (!allocations) return null;
 
   const items = [];
@@ -563,8 +567,8 @@ function ActionInbox({ allocations, actor, roles, onGoTo }) {
     if (isOwner && hasTarget && !acked)
       items.push({ key: `ack-${a.id}`, urgent: true, action: "Acknowledge your target",
         context: `${a.output_metric} — target of ${a.target_value}. The cycle can't open until you acknowledge.`, goto: "my" });
-    // Owner: submit work (acknowledged, ready)
-    if (isOwner && locked && !(a.open_query_count > 0) && !reported)
+    // Owner: submit work (acknowledged, ready) — only while the period is Open
+    if (isOwner && locked && !(a.open_query_count > 0) && !reported && periodOpen)
       items.push({ key: `sub-${a.id}`, urgent: false, action: "Submit your work",
         context: `${a.output_metric} — log progress against your target of ${a.target_value}`, goto: "my" });
     // HRBP/Dir: set a target (allocate the work)
@@ -651,12 +655,14 @@ export default function StaffDashboard() {
   const tab = ALL_TABS.includes(pathTab) ? pathTab : (legacy[pathTab] || "my");
   const setTab = (t) => navigate(`/${t}`);
 
-  // Auto-select the first Open period (fallback to most recent non-closed)
+  // Auto-select: first Open period → most recent non-closed → most recent of all.
+  // Always lands on a real period when any exist, so manager tabs never sit empty.
   useEffect(() => {
-    if (periods && !selectedPeriod) {
-      const open = periods.find(p => p.status === "Open")
-                || periods.find(p => p.status !== "Closed");
-      if (open) setSelectedPeriod(String(open.id));
+    if (periods && periods.length > 0 && !selectedPeriod) {
+      const pick = periods.find(p => p.status === "Open")
+                || periods.find(p => p.status !== "Closed")
+                || periods[0];
+      if (pick) setSelectedPeriod(String(pick.id));
     }
   }, [periods, selectedPeriod]);
 
@@ -714,6 +720,7 @@ export default function StaffDashboard() {
       {/* Action inbox — only on the home tab */}
       {tab === "my" && selectedPeriod && (
         <ActionInbox allocations={inboxAllocs} actor={actor} roles={roles}
+          periodOpen={(periods || []).find(p => String(p.id) === String(selectedPeriod))?.status === "Open"}
           onGoTo={(t) => setTab(t)} />
       )}
 

@@ -1096,7 +1096,7 @@ export default function AdminDashboard() {
 
 // Admin-side org view: same OrgDashboard the Executive sees, with a period picker.
 function AdminOrgTab() {
-  const { data: periods } = useAsync(() => periodsApi.list());
+  const { data: periods } = useAsync(() => setup.listPeriods());
   const [period, setPeriod] = useState("");
   useEffect(() => {
     if (periods && periods.length && !period) {
