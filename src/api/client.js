@@ -135,6 +135,8 @@ export const allocations = {
   acknowledge:    (id)                => req("POST", `/allocations/${id}/target/acknowledge`),  // employee
   confirm:        (id)                => req("POST", `/allocations/${id}/confirm`),    // KAD Director: Work confirmed (row)
   unconfirm:      (id)                => req("POST", `/allocations/${id}/unconfirm`),  // reopen row
+  hrbpFlag:       (id, note)          => req("POST", `/allocations/${id}/hrbp-flag`,   { body: { note } }),  // HRBP raises for KAD
+  hrbpUnflag:     (id)                => req("POST", `/allocations/${id}/hrbp-unflag`),
   hrbpComplete:   (period)            => req("POST", `/kad/hrbp-complete?period=${period}`),    // HRBP: cycle complete
   hrbpUncomplete: (period)            => req("POST", `/kad/hrbp-uncomplete?period=${period}`),
   kadSignoff:     (period)            => req("POST", `/kad/signoff?period=${period}`),   // KAD: report to org
@@ -203,6 +205,7 @@ export const resources = {
 export const dashboard = {
   kad: (periodId) => req("GET", `/dashboard/kad${periodId ? `?period=${periodId}` : ""}`),
   org: (periodId) => req("GET", `/dashboard/org${periodId ? `?period=${periodId}` : ""}`),
+  consolidation: (periodId) => req("GET", `/dashboard/consolidation${periodId ? `?period=${periodId}` : ""}`),
 };
 
 // ── projects: management, SLAs, milestones ───────────────────────────────────
