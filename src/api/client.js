@@ -46,6 +46,30 @@ async function req(method, path, { body, form, auth = true } = {}) {
   return data;
 }
 
+// ── proofs / attachments (admin) ─────────────────────────────────────────────
+export const proofs = {
+  manifest: (periodId) => req("GET", `/admin/proofs${periodId ? `?period=${periodId}` : ""}`),
+};
+
+// Fetch a binary file with auth and save it with the server's descriptive filename.
+async function authedDownload(path, fallbackName) {
+  const t = getToken();
+  const res = await fetch(`${BASE}${path}`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const cd = res.headers.get("content-disposition") || "";
+  const m = /filename="([^"]+)"/.exec(cd);
+  const name = (m && m[1]) || fallbackName;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+export const downloadProof    = (allocId, subId) => authedDownload(`/allocations/${allocId}/submissions/${subId}/proof`, `proof-${subId}`);
+export const downloadProofsCsv = (periodId) => authedDownload(`/admin/proofs?format=csv${periodId ? `&period=${periodId}` : ""}`, "proofs_manifest.csv");
+export const downloadProofsZip = (periodId) => authedDownload(`/admin/proofs/zip${periodId ? `?period=${periodId}` : ""}`, "kad_proofs.zip");
+export const downloadReportXlsx = (periodId) => authedDownload(`/admin/report.xlsx${periodId ? `?period=${periodId}` : ""}`, "KAD_Management_Report.xlsx");
+
 // ── auth ─────────────────────────────────────────────────────────────────────
 export const auth = {
   login:          (email, password) => req("POST", "/auth/login",           { body: { email, password }, auth: false }),
