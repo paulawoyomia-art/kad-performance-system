@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
 import { OrgDashboard } from "./ManagerViews";
-import { setup, periods as periodsApi } from "../api/client";
+import { setup, periods as periodsApi, proofs as proofsApi, downloadProof, downloadProofsCsv, downloadProofsZip } from "../api/client";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function useAsync(fn, deps = []) {
@@ -1045,11 +1045,12 @@ function EditScopeModal({ target, onClose, onDone }) {
 }
 
 // ── AdminDashboard ────────────────────────────────────────────────────────────
-const TABS = ["KADs","People","Clients","Role Assignments","Projects","Periods","Allocations","Organisation"];
+const TABS = ["KADs","People","Clients","Role Assignments","Projects","Periods","Allocations","Organisation","Proofs"];
 const TAB_SLUGS = {
   "KADs": "kads", "People": "people", "Clients": "clients",
   "Role Assignments": "role-assignments", "Projects": "projects",
   "Periods": "periods", "Allocations": "allocations", "Organisation": "org",
+  "Proofs": "proofs",
 };
 const SLUG_TABS = Object.fromEntries(Object.entries(TAB_SLUGS).map(([k,v]) => [v,k]));
 
@@ -1063,11 +1064,13 @@ export default function AdminDashboard() {
     "KADs": Icons.setup, "People": Icons.team, "Clients": Icons.allocations,
     "Role Assignments": Icons.setup, "Projects": Icons.allocations,
     "Periods": Icons.periods, "Allocations": Icons.allocations, "Organisation": Icons.org || Icons.periods,
+    "Proofs": Icons.allocations,
   };
   const TAB_MOBILE = {
     "KADs": "KADs", "People": "People", "Clients": "Clients",
     "Role Assignments": "Roles", "Projects": "Projects",
     "Periods": "Periods", "Allocations": "Allocs", "Organisation": "Org",
+    "Proofs": "Proofs",
   };
 
   const navItems = TABS.map(t => ({
@@ -1090,7 +1093,86 @@ export default function AdminDashboard() {
       {tab==="Periods"          && <PeriodsTab/>}
       {tab==="Allocations"      && <AllocationsTab/>}
       {tab==="Organisation"     && <AdminOrgTab/>}
+      {tab==="Proofs"           && <ProofsTab/>}
     </AppShell>
+  );
+}
+
+// Admin attachments inventory — every R2 proof, matched to KAD/client/project/
+// period/person, filterable, with per-file download and a manifest CSV export.
+function ProofsTab() {
+  const { data: periods } = useAsync(() => setup.listPeriods());
+  const [period, setPeriod] = useState("");
+  const { data, loading } = useAsync(() => proofsApi.manifest(period || null), [period]);
+  const [f, setF] = useState({ kad: "", client: "", project: "", person: "" });
+  const [busy, setBusy] = useState(null);
+
+  const all = data?.proofs || [];
+  const uniq = (key) => [...new Set(all.map(r => r[key]).filter(Boolean))].sort();
+  const rows = all.filter(r =>
+    (!f.kad || r.kad_name === f.kad) && (!f.client || r.client_name === f.client) &&
+    (!f.project || r.project_name === f.project) && (!f.person || r.employee === f.person));
+
+  async function dl(r) {
+    setBusy(r.submission_id);
+    try { await downloadProof(r.allocation_id, r.submission_id); }
+    catch (e) { alert("Download failed: " + e.message); }
+    finally { setBusy(null); }
+  }
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-3" style={{ flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <h2 className="t-title">Attachments ({rows.length})</h2>
+          <p className="t-caption">Every uploaded proof, matched to KAD · client · project · period · person. Files download self-named.</p>
+        </div>
+        <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => downloadProofsCsv(period || null)}>Export manifest CSV</button>
+          <button className="btn btn-primary btn-sm" onClick={() => downloadProofsZip(period || null)}>Download all (ZIP)</button>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mb-3" style={{ flexWrap: "wrap" }}>
+        <select className="input input-sm" value={period} onChange={e => setPeriod(e.target.value)}>
+          <option value="">All periods</option>
+          {(periods || []).map(p => <option key={p.id} value={p.id}>{p.period_label}</option>)}
+        </select>
+        {[["kad", "kad_name", "All KADs"], ["client", "client_name", "All clients"], ["project", "project_name", "All projects"], ["person", "employee", "All people"]].map(([fk, dk, label]) => (
+          <select key={fk} className="input input-sm" value={f[fk]} onChange={e => setF(s => ({ ...s, [fk]: e.target.value }))}>
+            <option value="">{label}</option>
+            {uniq(dk).map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        ))}
+        {(f.kad || f.client || f.project || f.person) &&
+          <button className="btn btn-ghost btn-sm" onClick={() => setF({ kad: "", client: "", project: "", person: "" })}>Clear</button>}
+      </div>
+
+      {loading ? <div className="loading-center"><span className="spinner" /></div>
+        : rows.length === 0 ? <div className="empty"><p className="empty-title">No attachments</p><p className="empty-body">Proofs appear here once staff submit output with a file.</p></div>
+        : <div className="card" style={{ padding: 0 }}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>KAD</th><th>Client</th><th>Project</th><th>Period</th><th>Person</th><th>Metric</th><th>Date</th><th>File</th><th></th></tr></thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.submission_id}>
+                      <td>{r.kad_name}</td>
+                      <td>{r.client_name || "—"}</td>
+                      <td>{r.project_name || "—"}</td>
+                      <td>{r.period_label}</td>
+                      <td><strong>{r.employee}</strong> <span className="t-caption">{r.staff_code}</span></td>
+                      <td>{r.output_metric}</td>
+                      <td>{r.date_of_activity}</td>
+                      <td className="t-caption" title={r.proof_description}>{r.filename}</td>
+                      <td><button className="btn btn-secondary btn-sm" disabled={busy === r.submission_id} onClick={() => dl(r)}>{busy === r.submission_id ? "…" : "Download"}</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>}
+    </div>
   );
 }
 

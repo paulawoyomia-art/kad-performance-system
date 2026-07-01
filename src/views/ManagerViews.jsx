@@ -8,6 +8,7 @@ import {
   projects as projectsApi,
   allocations as allocApi,
   resources as resourcesApi,
+  downloadReportXlsx,
 } from "../api/client";
 
 // ── shared small helpers ──────────────────────────────────────────────────────
@@ -1191,7 +1192,10 @@ export function OrgDashboard({ selectedPeriod }) {
     <div>
       <div className="flex justify-between items-center mb-2" style={{ flexWrap: "wrap", gap: 8 }}>
         <h2 className="t-title">Organisation overview — all KADs</h2>
-        <button className="btn btn-secondary btn-sm" onClick={exportCsv}>Export {tab} CSV</button>
+        <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+          <button className="btn btn-secondary btn-sm" onClick={exportCsv}>Export {tab} CSV</button>
+          <button className="btn btn-primary btn-sm" onClick={() => downloadReportXlsx(selectedPeriod || null)}>⬇ Report (Excel)</button>
+        </div>
       </div>
 
       {/* Org totals */}
