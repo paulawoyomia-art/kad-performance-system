@@ -571,16 +571,17 @@ function ProjectsTab() {
       </div>
       {loading ? <div className="loading-center"><span className="spinner"/></div> : (
         <div className="card" style={{padding:0}}><div className="table-wrap"><table>
-          <thead><tr><th>Name</th><th>Client</th><th>Lead</th><th>Status</th><th>Contract</th><th>Collected</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Client</th><th>Country</th><th>Lead</th><th>Status</th><th>Contract</th><th>Collected</th><th></th></tr></thead>
           <tbody>
-            {projects?.length===0 && <tr><td colSpan={7}><div className="empty"><p className="empty-title">No projects yet</p><p className="empty-body">Add one, or import a CSV.</p></div></td></tr>}
+            {projects?.length===0 && <tr><td colSpan={8}><div className="empty"><p className="empty-title">No projects yet</p><p className="empty-body">Add one, or import a CSV.</p></div></td></tr>}
             {projects?.map(p=>(
               <tr key={p.id}>
                 <td><strong>{p.project_name}</strong></td>
                 <td>{p.client_name}</td>
+                <td>{p.country || "Nigeria"} <span className="t-caption">({p.currency || "NGN"})</span></td>
                 <td>{p.project_lead_id ? (people?.find(x=>x.id===p.project_lead_id)?.full_name || "—") : <span className="t-caption">—</span>}</td>
                 <td><StatusBadge status={p.status}/></td>
-                <td className="t-mono">₦{(p.contract_value||0).toLocaleString()}</td>
+                <td className="t-mono">{p.currency||"NGN"} {(p.contract_value||0).toLocaleString()}</td>
                 <td>
                   <div className="flex items-center gap-2">
                     <div className="progress-bar" style={{width:60, flexShrink:0}}>
@@ -609,17 +610,20 @@ function ProjectsTab() {
 }
 
 function AddProjectModal({ clients, people, onClose, onDone }) {
-  const [form, setForm] = useState({ project_name:"", client_id:"", status:"Active", contract_value:"", project_lead_id:"" });
+  const [form, setForm] = useState({ project_name:"", client_id:"", status:"Active", country:"Nigeria", currency:"NGN", contract_value:"", project_lead_id:"" });
   const [err, setErr] = useState(""); const [saving, setSaving] = useState(false);
+  const [fxRates, setFxRates] = useState(null);
   const f = (k,v) => setForm(p=>({...p,[k]:v}));
   const STATUSES = ["Prospecting","Negotiation","Awarded","Active","Closing","On Hold","Completed"];
+  useEffect(() => { setup.listFxRates().then(setFxRates).catch(() => setFxRates([])); }, []);
   async function save(){
     setErr("");
     if (!form.project_name.trim() || !form.client_id) { setErr("Project name and client are required."); return; }
     setSaving(true);
     try {
       await setup.createProject({ project_name:form.project_name.trim(), client_id:Number(form.client_id),
-        status:form.status, contract_value:form.contract_value?Number(form.contract_value):0,
+        status:form.status, country:form.country.trim()||"Nigeria", currency:form.currency,
+        contract_value:form.contract_value?Number(form.contract_value):0,
         project_lead_id:form.project_lead_id?Number(form.project_lead_id):null });
       onDone?.();
     } catch(e){ setErr(e.message); } finally { setSaving(false); }
@@ -643,7 +647,18 @@ function AddProjectModal({ clients, people, onClose, onDone }) {
           </select></div>
       </div>
       <div className="grid-2">
-        <div className="form-group"><label className="form-label">Contract value (₦)</label>
+        <div className="form-group"><label className="form-label">Country</label>
+          <input className="form-input" value={form.country} onChange={e=>f("country",e.target.value)} placeholder="e.g. Nigeria, Ghana, Kenya"/></div>
+        <div className="form-group"><label className="form-label">Currency</label>
+          <select className="form-select" value={form.currency} onChange={e=>f("currency",e.target.value)}>
+            {(fxRates||[]).map(r=><option key={r.currency_code} value={r.currency_code}>{r.currency_code} — {r.currency_name}</option>)}
+          </select>
+          {fxRates && fxRates.length <= 2 && (
+            <p className="t-caption" style={{marginTop:4}}>Only USD and NGN are set up. Add more currencies under Admin → FX Rates first.</p>
+          )}</div>
+      </div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Contract value <span className="t-caption" style={{fontWeight:400}}>(in the currency above)</span></label>
           <input className="form-input" type="number" value={form.contract_value} onChange={e=>f("contract_value",e.target.value)} placeholder="0"/></div>
         <div className="form-group"><label className="form-label">Project Lead <span className="t-caption" style={{fontWeight:400}}>(optional — assign later)</span></label>
           <select className="form-select" value={form.project_lead_id} onChange={e=>f("project_lead_id",e.target.value)}>
@@ -660,15 +675,20 @@ function EditProjectModal({ project, clients, people, onClose, onDone }) {
   const [form, setForm] = useState({
     project_name: project.project_name || "",
     status: project.status || "Active",
+    country: project.country || "Nigeria",
+    currency: project.currency || "NGN",
     contract_value: project.contract_value ?? "",
     revenue_collected: project.revenue_collected ?? "",
     project_lead_id: project.project_lead_id ? String(project.project_lead_id) : "",
   });
   const [err, setErr] = useState(""); const [saving, setSaving] = useState(false);
+  const [fxRates, setFxRates] = useState(null);
   const f = (k,v) => setForm(p=>({...p,[k]:v}));
   const STATUSES = ["Prospecting","Negotiation","Awarded","Active","Closing","On Hold","Completed"];
   // Only people in the project's KAD make sense as lead
   const eligible = (people || []).filter(p => p.kad_id === project.kad_id);
+  useEffect(() => { setup.listFxRates().then(setFxRates).catch(() => setFxRates([])); }, []);
+  const currencyChanged = form.currency !== (project.currency || "NGN");
   async function save(){
     setErr("");
     if (!form.project_name.trim()) { setErr("Project name is required."); return; }
@@ -677,6 +697,8 @@ function EditProjectModal({ project, clients, people, onClose, onDone }) {
       await setup.updateProject(project.id, {
         project_name: form.project_name.trim(),
         status: form.status,
+        country: form.country.trim() || "Nigeria",
+        currency: form.currency,
         contract_value: form.contract_value === "" ? 0 : Number(form.contract_value),
         revenue_collected: form.revenue_collected === "" ? 0 : Number(form.revenue_collected),
         project_lead_id: form.project_lead_id ? Number(form.project_lead_id) : null,
@@ -705,9 +727,24 @@ function EditProjectModal({ project, clients, people, onClose, onDone }) {
         </div>
       </div>
       <div className="grid-2">
-        <div className="form-group"><label className="form-label">Contract value (₦)</label>
+        <div className="form-group"><label className="form-label">Country</label>
+          <input className="form-input" value={form.country} onChange={e=>f("country",e.target.value)}/></div>
+        <div className="form-group"><label className="form-label">Currency</label>
+          <select className="form-select" value={form.currency} onChange={e=>f("currency",e.target.value)}>
+            {(fxRates||[]).map(r=><option key={r.currency_code} value={r.currency_code}>{r.currency_code} — {r.currency_name}</option>)}
+          </select>
+          {currencyChanged && (
+            <p className="t-caption" style={{marginTop:4, color:"var(--warning, #b45309)"}}>
+              Changing currency re-labels the contract/revenue figures below without converting them —
+              make sure the amounts still make sense in the new currency.
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Contract value <span className="t-caption" style={{fontWeight:400}}>(in the currency above)</span></label>
           <input className="form-input" type="number" value={form.contract_value} onChange={e=>f("contract_value",e.target.value)} placeholder="0"/></div>
-        <div className="form-group"><label className="form-label">Revenue collected (₦)</label>
+        <div className="form-group"><label className="form-label">Revenue collected <span className="t-caption" style={{fontWeight:400}}>(in the currency above)</span></label>
           <input className="form-input" type="number" value={form.revenue_collected} onChange={e=>f("revenue_collected",e.target.value)} placeholder="0"/></div>
       </div>
       {err&&<div className="alert alert-danger">{err}</div>}
@@ -1045,10 +1082,11 @@ function EditScopeModal({ target, onClose, onDone }) {
 }
 
 // ── AdminDashboard ────────────────────────────────────────────────────────────
-const TABS = ["KADs","People","Clients","Role Assignments","Projects","Periods","Allocations","Organisation","Proofs"];
+const TABS = ["KADs","People","Clients","Role Assignments","Projects","FX Rates","Periods","Allocations","Organisation","Proofs"];
 const TAB_SLUGS = {
   "KADs": "kads", "People": "people", "Clients": "clients",
   "Role Assignments": "role-assignments", "Projects": "projects",
+  "FX Rates": "fx-rates",
   "Periods": "periods", "Allocations": "allocations", "Organisation": "org",
   "Proofs": "proofs",
 };
@@ -1063,12 +1101,14 @@ export default function AdminDashboard() {
   const TAB_ICONS = {
     "KADs": Icons.setup, "People": Icons.team, "Clients": Icons.allocations,
     "Role Assignments": Icons.setup, "Projects": Icons.allocations,
+    "FX Rates": Icons.allocations,
     "Periods": Icons.periods, "Allocations": Icons.allocations, "Organisation": Icons.org || Icons.periods,
     "Proofs": Icons.allocations,
   };
   const TAB_MOBILE = {
     "KADs": "KADs", "People": "People", "Clients": "Clients",
     "Role Assignments": "Roles", "Projects": "Projects",
+    "FX Rates": "FX",
     "Periods": "Periods", "Allocations": "Allocs", "Organisation": "Org",
     "Proofs": "Proofs",
   };
@@ -1090,6 +1130,7 @@ export default function AdminDashboard() {
       {tab==="Clients"          && <ClientsTab/>}
       {tab==="Role Assignments" && <RoleAssignmentsTab/>}
       {tab==="Projects"         && <ProjectsTab/>}
+      {tab==="FX Rates"         && <FxRatesTab/>}
       {tab==="Periods"          && <PeriodsTab/>}
       {tab==="Allocations"      && <AllocationsTab/>}
       {tab==="Organisation"     && <AdminOrgTab/>}
@@ -1100,6 +1141,111 @@ export default function AdminDashboard() {
 
 // Admin attachments inventory — every R2 proof, matched to KAD/client/project/
 // period/person, filterable, with per-file download and a manifest CSV export.
+// Admin-maintained currency conversion rates. Every KAD/Client/Org rollup
+// converts a project's native contract/revenue figures into USD (Telinno's
+// reporting currency) using whatever's set here — so this must be set up
+// BEFORE a project in a new currency can be created (project creation is
+// blocked otherwise).
+function FxRatesTab() {
+  const { data: rates, loading, reload } = useAsync(() => setup.listFxRates());
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ currency_code: "", currency_name: "", rate_to_usd: "" });
+  const [err, setErr] = useState(""); const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setErr("");
+    const code = form.currency_code.trim().toUpperCase();
+    if (!code || code.length !== 3) { setErr("Currency code should be a 3-letter ISO code, e.g. GHS."); return; }
+    if (!form.currency_name.trim()) { setErr("Currency name is required."); return; }
+    if (!form.rate_to_usd || Number(form.rate_to_usd) <= 0) { setErr("Rate must be a positive number."); return; }
+    setSaving(true);
+    try {
+      await setup.upsertFxRate({ currency_code: code, currency_name: form.currency_name.trim(), rate_to_usd: Number(form.rate_to_usd) });
+      setAdding(false); setForm({ currency_code: "", currency_name: "", rate_to_usd: "" });
+      reload();
+    } catch (e) { setErr(e.message); } finally { setSaving(false); }
+  }
+  async function del(r) {
+    if (!confirm(`Remove ${r.currency_code}? Blocked if any project still uses it.`)) return;
+    try { await setup.deleteFxRate(r.currency_code); reload(); }
+    catch (e) { alert(e.message); }
+  }
+
+  const staleNgn = rates?.find(r => r.currency_code === "NGN");
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-3">
+        <div>
+          <h2 className="t-title">FX Rates</h2>
+          <p className="t-caption">
+            One row per currency your projects use. <strong>USD is the reporting currency</strong> (rate
+            fixed at 1) — every KAD/Client/Org total is converted through these rates so projects in
+            different countries can be summed meaningfully. Add a currency here <strong>before</strong>{" "}
+            creating a project in it.
+          </p>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>+ Add currency</button>
+      </div>
+
+      {staleNgn && (
+        <div className="alert alert-warning" style={{ marginBottom: 16 }}>
+          NGN's rate drifts — it's currently <strong>{staleNgn.rate_to_usd}</strong> (1 NGN = that many USD),
+          last updated {staleNgn.updated_at}. Confirm this is still close to the market rate before relying
+          on converted totals, and update it below if not.
+        </div>
+      )}
+
+      {adding && (
+        <div className="card" style={{ marginBottom: 16, padding: 16 }}>
+          <div className="grid-2">
+            <div className="form-group"><label className="form-label">Currency code <span>*</span></label>
+              <input className="form-input" value={form.currency_code} maxLength={3}
+                onChange={e => setForm(p => ({ ...p, currency_code: e.target.value.toUpperCase() }))}
+                placeholder="e.g. GHS, KES, NGN" /></div>
+            <div className="form-group"><label className="form-label">Currency name <span>*</span></label>
+              <input className="form-input" value={form.currency_name}
+                onChange={e => setForm(p => ({ ...p, currency_name: e.target.value }))}
+                placeholder="e.g. Ghanaian Cedi" /></div>
+          </div>
+          <div className="form-group"><label className="form-label">Rate to $ (1 unit of this currency = how many USD) <span>*</span></label>
+            <input className="form-input" type="number" step="any" value={form.rate_to_usd}
+              onChange={e => setForm(p => ({ ...p, rate_to_usd: e.target.value }))} placeholder="e.g. 0.067" />
+            <p className="t-caption" style={{ marginTop: 4 }}>Check a current rate before entering this — it isn't looked up automatically.</p>
+          </div>
+          {err && <div className="alert alert-danger">{err}</div>}
+          <div className="flex gap-2" style={{ marginTop: 8 }}>
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
+              {saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "Save"}</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setAdding(false); setErr(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <div className="loading-center"><span className="spinner" /></div>
+        : <div className="card" style={{ padding: 0 }}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Code</th><th>Name</th><th>Rate to $</th><th>Last updated</th><th></th></tr></thead>
+                <tbody>
+                  {(rates || []).map(r => (
+                    <tr key={r.currency_code}>
+                      <td><strong>{r.currency_code}</strong></td>
+                      <td>{r.currency_name}</td>
+                      <td className="t-mono">{r.rate_to_usd}</td>
+                      <td className="t-caption">{r.updated_at}{r.updated_by ? ` · ${r.updated_by}` : ""}</td>
+                      <td>{r.currency_code !== "USD" &&
+                        <button className="btn btn-danger btn-sm" onClick={() => del(r)}>Remove</button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>}
+    </div>
+  );
+}
+
 function ProofsTab() {
   const { data: periods } = useAsync(() => setup.listPeriods());
   const [period, setPeriod] = useState("");

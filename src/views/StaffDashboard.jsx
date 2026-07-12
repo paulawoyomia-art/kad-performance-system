@@ -206,13 +206,18 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit, periodOpen = true }
         <span className={`badge ${reported ? "badge-success" : "badge-neutral"}`}>{reported ? "✓ Reported to org" : "Report to org"}</span>
       </div>
 
-      {locked && (
+      {hasTarget && (
         <div style={{ marginBottom: 10 }}>
-          <div className="flex items-center gap-3">
-            <span className="t-caption">Target: <strong>{alloc.target_value}</strong></span>
-            <span className="t-caption">Actual: <strong>{alloc.actual_output_rollup}</strong></span>
-            <AchievementBar pct={alloc.achievement_pct} />
+          <div className="flex items-center gap-3" style={{ flexWrap: "wrap" }}>
+            <span className="t-caption">Target: <strong>{alloc.target_value} {alloc.unit || ""}</strong></span>
+            {locked && <span className="t-caption">Actual: <strong>{alloc.actual_output_rollup} {alloc.unit || ""}</strong></span>}
+            {locked && <AchievementBar pct={alloc.achievement_pct} />}
           </div>
+          {!acknowledged && isOwner && (
+            <p className="t-caption" style={{ marginTop: 4, color: "var(--text-muted)" }}>
+              Review the target above, then acknowledge it below to unlock submissions once the period opens.
+            </p>
+          )}
         </div>
       )}
 
@@ -259,14 +264,19 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit, periodOpen = true }
           <span className="badge badge-warning" style={{ alignSelf: "center" }}>Awaiting employee acknowledgement</span>
         )}
 
-        {/* Employee submits output (proof + IPO) — only while the period is Open. */}
-        {locked && isOwner && !reported && periodOpen && (
+        {/* Employee submits output — only until the KAD Director confirms the work.
+            A query (or a Director Reopen) leaves the row un-confirmed, so the
+            button correctly returns for revisions. */}
+        {locked && isOwner && !workConfirmed && periodOpen && (
           <button className="btn btn-primary btn-sm" onClick={() => onSubmit?.(alloc)}>
             + Submit output
           </button>
         )}
-        {locked && isOwner && !reported && !periodOpen && (
+        {locked && isOwner && !workConfirmed && !periodOpen && (
           <span className="t-caption" style={{ color: "var(--text-muted)" }}>Period closed — submissions are locked.</span>
+        )}
+        {locked && isOwner && workConfirmed && !reported && (
+          <span className="t-caption" style={{ color: "var(--success)" }}>✓ Work confirmed by the KAD Director — submissions for this row are closed.</span>
         )}
 
         {/* HRBP + KAD both see the work. HRBP = view only; KAD can query (inside the reviewer). */}
@@ -567,8 +577,8 @@ function ActionInbox({ allocations, actor, roles, onGoTo, periodOpen = true }) {
     if (isOwner && hasTarget && !acked)
       items.push({ key: `ack-${a.id}`, urgent: true, action: "Acknowledge your target",
         context: `${a.output_metric} — target of ${a.target_value}. The cycle can't open until you acknowledge.`, goto: "my" });
-    // Owner: submit work (acknowledged, ready) — only while the period is Open
-    if (isOwner && locked && !(a.open_query_count > 0) && !reported && periodOpen)
+    // Owner: submit work (acknowledged, ready) — only until the KAD confirms the work
+    if (isOwner && locked && !(a.open_query_count > 0) && a.signoff_performed !== 1 && periodOpen)
       items.push({ key: `sub-${a.id}`, urgent: false, action: "Submit your work",
         context: `${a.output_metric} — log progress against your target of ${a.target_value}`, goto: "my" });
     // HRBP/Dir: set a target (allocate the work)
@@ -631,8 +641,17 @@ export default function StaffDashboard() {
   const { actor, canSetTargets, canConfirm, canApprove, canSignoff, canConfirmSO, hasRole } = useAuth();
   const navigate  = useNavigate();
   const location  = useLocation();
-  const { data: periods } = useAsync(() => periodsApi.list());
+  const { data: periods, reload: reloadPeriods } = useAsync(() => periodsApi.list());
   const [selectedPeriod, setSelectedPeriod] = useState(null);
+
+  // A period created by admin AFTER this view mounted won't be in our list
+  // (the fetch runs once on mount). Refetch when the window regains focus so
+  // managers see a just-created period without a hard reload.
+  useEffect(() => {
+    const onFocus = () => reloadPeriods?.();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [reloadPeriods]);
 
   const isDirector  = hasRole("KAD Director");
   const isHRBP      = hasRole("HRBP");
@@ -724,11 +743,12 @@ export default function StaffDashboard() {
           onGoTo={(t) => setTab(t)} />
       )}
 
-      {/* No period at all — guided empty state */}
+      {/* No period at all — guided empty state, with a manual re-check */}
       {(!periods || periods.length === 0) && (
         <div className="empty">
           <p className="empty-title">No active period yet</p>
-          <p className="empty-body">Your administrator will open a performance period once targets are set. Check back soon.</p>
+          <p className="empty-body">Your administrator will open a performance period once targets are set. If one was just created, check again.</p>
+          <button className="btn btn-secondary btn-sm" style={{ marginTop: 12 }} onClick={() => reloadPeriods?.()}>Check again</button>
         </div>
       )}
 
