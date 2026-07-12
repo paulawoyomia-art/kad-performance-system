@@ -116,6 +116,11 @@ export const setup = {
   importProjects:  (file)     => { const f = new FormData(); f.append("file", file); return req("POST", "/setup/projects/import", { form: f }); },
   projectsTemplate:()         => req("GET",   "/setup/projects/template"),
 
+  // FX rates — admin-maintained, drives multi-currency rollup conversion
+  listFxRates:     ()             => req("GET",   "/setup/fx-rates"),
+  upsertFxRate:    (body)         => req("POST",  "/setup/fx-rates",        { body }),
+  deleteFxRate:    (code)         => req("DELETE",`/setup/fx-rates/${code}`),
+
   // Periods
   listPeriods:     (kadId)    => req("GET",   `/setup/periods${kadId ? `?kad=${kadId}` : ""}`),
   createPeriod:    (body)     => req("POST",  "/setup/periods",         { body }),
