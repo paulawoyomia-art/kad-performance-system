@@ -8,6 +8,7 @@ import {
   projects as projectsApi,
   allocations as allocApi,
   resources as resourcesApi,
+  currencies as currenciesApi,
   downloadReportXlsx,
 } from "../api/client";
 
@@ -246,7 +247,7 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
   const { data: projects } = useAsync(() => projectsApi.list(), []);
   const { data: periods } = useAsync(() => periodsApi.list(), []);
   const { data: outputTypes, reload: reloadTypes } = useAsync(() => allocApi.outputTypes(), []);
-  const [form, setForm] = useState({ employee_id: "", project_id: "", period_id: defaultPeriod || "", output_metric: "", unit: "" });
+  const [form, setForm] = useState({ employee_id: "", project_id: "", period_id: defaultPeriod || "", output_metric: "", unit: "", target_value: "" });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [adding, setAdding] = useState(false);                 // "add a new type" inline form open?
@@ -291,13 +292,18 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
     if (!form.employee_id || !form.project_id || !form.period_id || !form.output_metric.trim()) {
       setErr("Employee, project, period and output metric are all required."); return;
     }
+    if (form.target_value !== "" && (isNaN(Number(form.target_value)) || Number(form.target_value) < 0)) {
+      setErr("Target must be a positive number, or left blank to set it later."); return;
+    }
     setSaving(true);
     try {
-      await allocApi.create({
+      const res = await allocApi.create({
         employee_id: Number(form.employee_id), project_id: Number(form.project_id),
         period_id: Number(form.period_id), output_metric: form.output_metric.trim(),
         unit: form.unit.trim() || null,
+        ...(form.target_value !== "" ? { target_value: Number(form.target_value) } : {}),
       });
+      if (form.target_value !== "" && res.target_set === false && res.target_note) alert(res.target_note);
       onDone?.();
     } catch (e) { setErr(e.message); } finally { setSaving(false); }
   }
@@ -383,6 +389,11 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
           </div>
         )}
       </div>
+      <div className="form-group">
+        <label className="form-label">Target <span className="t-caption" style={{ fontWeight: 400 }}>(optional — set it now, or leave blank and use "Set target" on the Register afterwards)</span></label>
+        <input className="form-input" type="number" min="0" value={form.target_value}
+          onChange={e => f("target_value", e.target.value)} placeholder="e.g. 10" />
+      </div>
       {err && <div className="alert alert-danger">{err}</div>}
     </Modal>
   );
@@ -391,7 +402,8 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
 export function NewProjectModal({ actor, onClose, onDone }) {
   const { data: clients } = useAsync(() => allocApi.myClients(actor?.kad_id || null), []);
   const { data: people } = useAsync(() => allocApi.allocatablePeople(actor?.kad_id || null), []);
-  const [form, setForm] = useState({ project_name: "", client_id: "", status: "Prospecting", contract_value: "", project_lead_id: "" });
+  const { data: currencyList } = useAsync(() => currenciesApi.list(), []);
+  const [form, setForm] = useState({ project_name: "", client_id: "", status: "Prospecting", country: "Nigeria", currency: "NGN", contract_value: "", project_lead_id: "" });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
@@ -404,7 +416,8 @@ export function NewProjectModal({ actor, onClose, onDone }) {
     try {
       await projectsApi.create({
         project_name: form.project_name.trim(), client_id: Number(form.client_id),
-        status: form.status, contract_value: form.contract_value ? Number(form.contract_value) : 0,
+        status: form.status, country: form.country.trim() || "Nigeria", currency: form.currency,
+        contract_value: form.contract_value ? Number(form.contract_value) : 0,
         project_lead_id: form.project_lead_id ? Number(form.project_lead_id) : null,
       });
       onDone?.();
@@ -434,7 +447,20 @@ export function NewProjectModal({ actor, onClose, onDone }) {
         </div>
       </div>
       <div className="grid-2">
-        <div className="form-group"><label className="form-label">Contract value (₦)</label>
+        <div className="form-group"><label className="form-label">Country</label>
+          <input className="form-input" value={form.country} onChange={e => f("country", e.target.value)} placeholder="e.g. Nigeria, Ghana, Kenya" />
+        </div>
+        <div className="form-group"><label className="form-label">Currency</label>
+          <select className="form-select" value={form.currency} onChange={e => f("currency", e.target.value)}>
+            {(currencyList || []).map(c => <option key={c.currency_code} value={c.currency_code}>{c.currency_code} — {c.currency_name}</option>)}
+          </select>
+          {currencyList && currencyList.length <= 2 && (
+            <p className="t-caption" style={{ marginTop: 4 }}>Need a different currency? Ask an admin to add it under FX Rates first.</p>
+          )}
+        </div>
+      </div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Contract value <span className="t-caption" style={{ fontWeight: 400 }}>(in the currency above)</span></label>
           <input className="form-input" type="number" min="0" value={form.contract_value} onChange={e => f("contract_value", e.target.value)} placeholder="0" />
         </div>
         <div className="form-group"><label className="form-label">Project Lead</label>

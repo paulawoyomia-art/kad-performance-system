@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
 import { OrgDashboard } from "./ManagerViews";
 import { setup, periods as periodsApi, proofs as proofsApi, downloadProof, downloadProofsCsv, downloadProofsZip } from "../api/client";
+import { exportCsv, useSort, SortTh } from "../lib/adminTable";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function useAsync(fn, deps = []) {
@@ -119,6 +120,7 @@ function KADsTab() {
   const [name, setName]         = useState("");
   const [err, setErr]           = useState("");
   const [saving, setSaving]     = useState(false);
+  const { sorted, sortKey, sortDir, toggle } = useSort(kads, "id");
 
   async function createKad(e) {
     e.preventDefault(); setErr(""); setSaving(true);
@@ -127,21 +129,38 @@ function KADsTab() {
     finally { setSaving(false); }
   }
 
+  function doExport() {
+    exportCsv("kads.csv", sorted, [
+      { key: "id", label: "ID" }, { key: "kad_name", label: "Name" },
+      { key: "status", label: "Status" }, { key: "headcount", label: "Headcount" },
+    ]);
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <h2 className="t-title">KADs</h2>
-        <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>+ New KAD</button>
+        <div className="flex gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={doExport}>Export CSV</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>+ New KAD</button>
+        </div>
       </div>
       {loading ? <div className="loading-center"><span className="spinner"/></div> : (
         <div className="card" style={{padding:0}}>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Name</th><th>Status</th><th>Headcount</th><th></th></tr></thead>
+              <thead><tr>
+                <SortTh label="ID" sortKeyName="id" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Name" sortKeyName="kad_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Status" sortKeyName="status" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Headcount" sortKeyName="headcount" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <th></th>
+              </tr></thead>
               <tbody>
-                {kads?.length === 0 && <tr><td colSpan={4}><div className="empty"><p className="empty-title">No KADs yet</p><p className="empty-body">Create your first KAD to get started.</p></div></td></tr>}
-                {kads?.map(k => (
+                {sorted?.length === 0 && <tr><td colSpan={5}><div className="empty"><p className="empty-title">No KADs yet</p><p className="empty-body">Create your first KAD to get started.</p></div></td></tr>}
+                {sorted?.map(k => (
                   <tr key={k.id}>
+                    <td className="t-caption">{k.id}</td>
                     <td><strong>{k.kad_name}</strong></td>
                     <td><StatusBadge status={k.status}/></td>
                     <td>{k.headcount}</td>
@@ -190,9 +209,20 @@ function PeopleTab() {
   const [err, setErr]           = useState("");
   const [saving, setSaving]     = useState(false);
   const [newPw, setNewPw]       = useState(null);
+  const { sorted, sortKey, sortDir, toggle } = useSort(people, "full_name");
 
   function f(k, v)   { setForm(p => ({...p, [k]: v})); }
   function edf(k, v) { setEditing(p => ({...p, [k]: v})); }
+
+  function doExport() {
+    exportCsv("people.csv", sorted, [
+      { key: "id", label: "ID" }, { key: "employee_id", label: "Employee Code" },
+      { key: "full_name", label: "Full Name" }, { key: "designation", label: "Designation" },
+      { key: "staff_type", label: "Type" }, { key: "kad_id", label: "KAD ID" },
+      { key: "kad_name", label: "KAD" }, { key: "email", label: "Email" },
+      { key: "status", label: "Status" }, { key: "is_hr_manager", label: "HR Manager" },
+    ]);
+  }
 
   async function createPerson(e) {
     e.preventDefault(); setErr(""); setSaving(true);
@@ -250,6 +280,7 @@ function PeopleTab() {
         </div>
         <div className="flex gap-2">
           {DownloadTemplate("People", setup.peopleTemplate)}
+          <button className="btn btn-secondary btn-sm" onClick={doExport}>Export CSV</button>
           <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>+ Add person</button>
         </div>
       </div>
@@ -270,16 +301,28 @@ function PeopleTab() {
         <div className="card" style={{padding:0}}>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Name</th><th>Designation</th><th>Type</th><th>KAD</th><th>Status</th><th>HR Manager</th><th></th></tr></thead>
+              <thead><tr>
+                <SortTh label="ID" sortKeyName="id" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Code" sortKeyName="employee_id" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Name" sortKeyName="full_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Designation" sortKeyName="designation" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Type" sortKeyName="staff_type" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="KAD" sortKeyName="kad_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Email" sortKeyName="email" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Status" sortKeyName="status" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <th>HR Manager</th><th></th>
+              </tr></thead>
               <tbody>
-                {people?.length === 0 && <tr><td colSpan={8}><div className="empty"><p className="empty-title">No people yet</p><p className="empty-body">Import a CSV or add someone manually.</p></div></td></tr>}
-                {people?.map(p => (
+                {sorted?.length === 0 && <tr><td colSpan={10}><div className="empty"><p className="empty-title">No people yet</p><p className="empty-body">Import a CSV or add someone manually.</p></div></td></tr>}
+                {sorted?.map(p => (
                   <tr key={p.id}>
+                    <td className="t-caption">{p.id}</td>
                     <td className="t-mono">{p.employee_id}</td>
                     <td><strong>{p.full_name}</strong></td>
                     <td>{p.designation}</td>
                     <td><span className="badge badge-neutral">{p.staff_type}</span></td>
-                    <td>KAD {p.kad_id}</td>
+                    <td>{p.kad_name || `KAD ${p.kad_id}`}</td>
+                    <td className="t-caption">{p.email}</td>
                     <td><StatusBadge status={p.status}/>{p.must_change_password ? <span className="badge badge-warning" style={{marginLeft:4}}>First login</span> : null}</td>
                     <td>
                       {p.is_hr_manager
@@ -379,10 +422,18 @@ function ClientsTab() {
   const [form, setForm]   = useState({client_name:"",kad_id:""});
   const [err, setErr]     = useState("");
   const [saving, setSaving] = useState(false);
+  const { sorted, sortKey, sortDir, toggle } = useSort(clients, "client_name");
   function f(k,v){ setForm(p=>({...p,[k]:v})); }
   async function create(e){ e.preventDefault(); setErr(""); setSaving(true);
     try{ await setup.createClient({client_name:form.client_name, kad_id:Number(form.kad_id)}); setCreating(false); setForm({client_name:"",kad_id:""}); reload(); }
     catch(e){ setErr(e.message); } finally{ setSaving(false); } }
+  function doExport() {
+    exportCsv("clients.csv", sorted, [
+      { key: "id", label: "ID" }, { key: "client_name", label: "Name" },
+      { key: "kad_id", label: "KAD ID" }, { key: "kad_name", label: "KAD" },
+      { key: "status", label: "Status" }, { key: "external_ref", label: "External Ref" },
+    ]);
+  }
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -393,14 +444,23 @@ function ClientsTab() {
             {kads?.map(k=><option key={k.id} value={k.id}>{k.kad_name}</option>)}
           </select>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={()=>setCreating(true)}>+ New client</button>
+        <div className="flex gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={doExport}>Export CSV</button>
+          <button className="btn btn-primary btn-sm" onClick={()=>setCreating(true)}>+ New client</button>
+        </div>
       </div>
       {loading ? <div className="loading-center"><span className="spinner"/></div> : (
         <div className="card" style={{padding:0}}><div className="table-wrap"><table>
-          <thead><tr><th>Name</th><th>KAD</th><th>Status</th><th></th></tr></thead>
+          <thead><tr>
+            <SortTh label="ID" sortKeyName="id" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Name" sortKeyName="client_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="KAD" sortKeyName="kad_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Status" sortKeyName="status" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <th></th>
+          </tr></thead>
           <tbody>
-            {clients?.length===0 && <tr><td colSpan={4}><div className="empty"><p className="empty-title">No clients yet</p></div></td></tr>}
-            {clients?.map(c=><tr key={c.id}><td><strong>{c.client_name}</strong></td><td>{c.kad_name}</td><td><StatusBadge status={c.status}/></td>
+            {sorted?.length===0 && <tr><td colSpan={5}><div className="empty"><p className="empty-title">No clients yet</p></div></td></tr>}
+            {sorted?.map(c=><tr key={c.id}><td className="t-caption">{c.id}</td><td><strong>{c.client_name}</strong></td><td>{c.kad_name}</td><td><StatusBadge status={c.status}/></td>
               <td>
                 <div className="flex gap-2">
                   <button className="btn btn-ghost btn-sm" onClick={async()=>{ const name = prompt("Client name", c.client_name); if(name && name.trim() && name.trim()!==c.client_name){ try{ await setup.updateClient(c.id,{client_name:name.trim()}); reload(); }catch(e){ alert(e.message); } } }}>Rename</button>
@@ -443,6 +503,7 @@ function PeriodsTab() {
   const [err, setErr]     = useState("");
   const [saving, setSaving] = useState(false);
   const [actionErr, setActionErr] = useState({});
+  const { sorted, sortKey, sortDir, toggle } = useSort(allPeriods, "start_date", "desc");
   function f(k,v){ setForm(p=>({...p,[k]:v})); }
 
   async function create(e){ e.preventDefault(); setErr(""); setSaving(true);
@@ -453,22 +514,46 @@ function PeriodsTab() {
     try{ await fn(id); reload(); }
     catch(e){ setActionErr({[id]: e.message}); } }
 
+  function doExport() {
+    exportCsv("periods.csv", sorted, [
+      { key: "id", label: "ID" }, { key: "period_label", label: "Label" },
+      { key: "kad_id", label: "KAD ID" }, { key: "kad_name", label: "KAD" },
+      { key: "start_date", label: "Start" }, { key: "end_date", label: "End" },
+      { key: "status", label: "Status" }, { key: "allocation_count", label: "Allocations" },
+      { key: "locked_count", label: "Locked" },
+    ]);
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <h2 className="t-title">Periods</h2>
-        <button className="btn btn-primary btn-sm" onClick={()=>setCreating(true)}>+ New period</button>
+        <div className="flex gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={doExport}>Export CSV</button>
+          <button className="btn btn-primary btn-sm" onClick={()=>setCreating(true)}>+ New period</button>
+        </div>
       </div>
       {loading ? <div className="loading-center"><span className="spinner"/></div> : (
         <div className="card" style={{padding:0}}><div className="table-wrap"><table>
-          <thead><tr><th>Label</th><th>KAD</th><th>Dates</th><th>Status</th><th>Allocations</th><th>Actions</th></tr></thead>
+          <thead><tr>
+            <SortTh label="ID" sortKeyName="id" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Label" sortKeyName="period_label" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="KAD" sortKeyName="kad_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Start" sortKeyName="start_date" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="End" sortKeyName="end_date" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Status" sortKeyName="status" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Allocations" sortKeyName="allocation_count" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <th>Actions</th>
+          </tr></thead>
           <tbody>
-            {allPeriods?.length===0 && <tr><td colSpan={6}><div className="empty"><p className="empty-title">No periods yet</p></div></td></tr>}
-            {allPeriods?.map(p=>(
+            {sorted?.length===0 && <tr><td colSpan={8}><div className="empty"><p className="empty-title">No periods yet</p></div></td></tr>}
+            {sorted?.map(p=>(
               <tr key={p.id}>
+                <td className="t-caption">{p.id}</td>
                 <td><strong>{p.period_label}</strong></td>
                 <td>{p.kad_name}</td>
-                <td className="t-caption">{p.start_date} → {p.end_date}</td>
+                <td className="t-caption">{p.start_date}</td>
+                <td className="t-caption">{p.end_date}</td>
                 <td><StatusBadge status={p.status}/></td>
                 <td><span className="t-mono">{p.locked_count}/{p.allocation_count}</span> locked</td>
                 <td>
@@ -550,10 +635,24 @@ function ProjectsTab() {
   const { data: projects, loading, reload } = useAsync(() => setup.listProjects());
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
+  const { sorted, sortKey, sortDir, toggle } = useSort(projects, "project_name");
 
   async function del(p) {
     if (!confirm(`Delete project "${p.project_name}"? If it has allocations, deletion is blocked — deactivate it instead.`)) return;
     try { await setup.deleteProject(p.id); reload(); } catch (e) { alert(e.message); }
+  }
+
+  function leadName(p) { return p.project_lead_id ? (people?.find(x=>x.id===p.project_lead_id)?.full_name || "") : ""; }
+  function doExport() {
+    const rows = sorted.map(p => ({ ...p, _lead: leadName(p) }));
+    exportCsv("projects.csv", rows, [
+      { key: "id", label: "ID" }, { key: "project_name", label: "Name" },
+      { key: "client_name", label: "Client" }, { key: "kad_name", label: "KAD" },
+      { key: "country", label: "Country" }, { key: "currency", label: "Currency" },
+      { key: "status", label: "Status" }, { key: "contract_value", label: "Contract (native)" },
+      { key: "revenue_collected", label: "Collected (native)" }, { key: "collection_pct", label: "Collection %" },
+      { key: "_lead", label: "Project Lead" },
+    ]);
   }
 
   return (
@@ -561,6 +660,7 @@ function ProjectsTab() {
       <div className="flex justify-between items-center mb-4">
         <h2 className="t-title">Projects</h2>
         <div className="flex gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={doExport}>Export CSV</button>
           <button className="btn btn-primary btn-sm" onClick={()=>setAdding(true)}>+ Add project</button>
           {DownloadTemplate("Projects", setup.projectsTemplate)}
         </div>
@@ -571,15 +671,28 @@ function ProjectsTab() {
       </div>
       {loading ? <div className="loading-center"><span className="spinner"/></div> : (
         <div className="card" style={{padding:0}}><div className="table-wrap"><table>
-          <thead><tr><th>Name</th><th>Client</th><th>Country</th><th>Lead</th><th>Status</th><th>Contract</th><th>Collected</th><th></th></tr></thead>
+          <thead><tr>
+            <SortTh label="ID" sortKeyName="id" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Name" sortKeyName="project_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Client" sortKeyName="client_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="KAD" sortKeyName="kad_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Country" sortKeyName="country" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <th>Lead</th>
+            <SortTh label="Status" sortKeyName="status" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Contract" sortKeyName="contract_value" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Collection %" sortKeyName="collection_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <th></th>
+          </tr></thead>
           <tbody>
-            {projects?.length===0 && <tr><td colSpan={8}><div className="empty"><p className="empty-title">No projects yet</p><p className="empty-body">Add one, or import a CSV.</p></div></td></tr>}
-            {projects?.map(p=>(
+            {sorted?.length===0 && <tr><td colSpan={10}><div className="empty"><p className="empty-title">No projects yet</p><p className="empty-body">Add one, or import a CSV.</p></div></td></tr>}
+            {sorted?.map(p=>(
               <tr key={p.id}>
+                <td className="t-caption">{p.id}</td>
                 <td><strong>{p.project_name}</strong></td>
                 <td>{p.client_name}</td>
+                <td>{p.kad_name}</td>
                 <td>{p.country || "Nigeria"} <span className="t-caption">({p.currency || "NGN"})</span></td>
-                <td>{p.project_lead_id ? (people?.find(x=>x.id===p.project_lead_id)?.full_name || "—") : <span className="t-caption">—</span>}</td>
+                <td>{leadName(p) || <span className="t-caption">—</span>}</td>
                 <td><StatusBadge status={p.status}/></td>
                 <td className="t-mono">{p.currency||"NGN"} {(p.contract_value||0).toLocaleString()}</td>
                 <td>
@@ -877,12 +990,29 @@ function RoleAssignmentsTab() {
   }
   const groups = Object.values(grouped).sort((a,b) =>
     (a.kad_name||"").localeCompare(b.kad_name||"") || a.person_name.localeCompare(b.person_name));
+  const { sorted, sortKey, sortDir, toggle } = useSort(groups, "person_name");
+
+  function doExport() {
+    const rows = sorted.map(g => ({
+      ...g,
+      scope_description: g.whole_kad ? "Whole KAD" : g.scoped.map(s => s.name).join("; "),
+    }));
+    exportCsv("role_assignments.csv", rows, [
+      { key: "person_id", label: "Person ID" }, { key: "employee_id", label: "Employee Code" },
+      { key: "person_name", label: "Person" }, { key: "kad_name", label: "KAD" },
+      { key: "role_id", label: "Role ID" }, { key: "role_name", label: "Role" },
+      { key: "scope_description", label: "Scope" },
+    ]);
+  }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <h2 className="t-title">Role assignments</h2>
-        <button className="btn btn-primary btn-sm" onClick={()=>setCreating(true)}>+ Assign role</button>
+        <div className="flex gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={doExport}>Export CSV</button>
+          <button className="btn btn-primary btn-sm" onClick={()=>setCreating(true)}>+ Assign role</button>
+        </div>
       </div>
       <div className="grid-3" style={{marginBottom:16}}>
         {roles?.map(r=>(
@@ -894,10 +1024,15 @@ function RoleAssignmentsTab() {
       </div>
       {loading ? <div className="loading-center"><span className="spinner"/></div> : (
         <div className="card" style={{padding:0}}><div className="table-wrap"><table>
-          <thead><tr><th>Person</th><th>KAD</th><th>Role</th><th>Scope</th><th></th></tr></thead>
+          <thead><tr>
+            <SortTh label="Person" sortKeyName="person_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="KAD" sortKeyName="kad_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Role" sortKeyName="role_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <th>Scope</th><th></th>
+          </tr></thead>
           <tbody>
-            {groups.length===0 && <tr><td colSpan={5}><div className="empty"><p className="empty-title">No assignments yet</p></div></td></tr>}
-            {groups.map(g=>{
+            {sorted.length===0 && <tr><td colSpan={5}><div className="empty"><p className="empty-title">No assignments yet</p></div></td></tr>}
+            {sorted.map(g=>{
               const isLM = g.role_name === "Line Manager";
               return (
                 <tr key={`${g.person_id}:${g.role_id}`}>
@@ -1172,6 +1307,15 @@ function FxRatesTab() {
   }
 
   const staleNgn = rates?.find(r => r.currency_code === "NGN");
+  const { sorted, sortKey, sortDir, toggle } = useSort(rates, "currency_code");
+
+  function doExport() {
+    exportCsv("fx_rates.csv", sorted, [
+      { key: "currency_code", label: "Currency Code" }, { key: "currency_name", label: "Currency Name" },
+      { key: "rate_to_usd", label: "Rate to $" }, { key: "updated_at", label: "Last Updated" },
+      { key: "updated_by", label: "Updated By" },
+    ]);
+  }
 
   return (
     <div>
@@ -1185,7 +1329,10 @@ function FxRatesTab() {
             creating a project in it.
           </p>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>+ Add currency</button>
+        <div className="flex gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={doExport}>Export CSV</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>+ Add currency</button>
+        </div>
       </div>
 
       {staleNgn && (
@@ -1226,9 +1373,15 @@ function FxRatesTab() {
         : <div className="card" style={{ padding: 0 }}>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Code</th><th>Name</th><th>Rate to $</th><th>Last updated</th><th></th></tr></thead>
+                <thead><tr>
+                  <SortTh label="Code" sortKeyName="currency_code" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                  <SortTh label="Name" sortKeyName="currency_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                  <SortTh label="Rate to $" sortKeyName="rate_to_usd" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                  <SortTh label="Last updated" sortKeyName="updated_at" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                  <th></th>
+                </tr></thead>
                 <tbody>
-                  {(rates || []).map(r => (
+                  {sorted?.map(r => (
                     <tr key={r.currency_code}>
                       <td><strong>{r.currency_code}</strong></td>
                       <td>{r.currency_name}</td>
