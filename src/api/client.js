@@ -143,6 +143,11 @@ export const periods = {
   gate:  (id)    => req("GET",  `/periods/${id}/gate`),
 };
 
+// ── currencies (read-only, any authenticated actor — for project creation) ──
+export const currencies = {
+  list: () => req("GET", "/fx-rates"),
+};
+
 // ── projects (operational) ───────────────────────────────────────────────────
 export const projects = {
   list:   (opts)     => req("GET",   `/projects${opts?.kadId ? `?kad=${opts.kadId}` : ""}`),
