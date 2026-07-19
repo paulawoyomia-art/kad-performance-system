@@ -11,6 +11,7 @@ import {
   currencies as currenciesApi,
   downloadReportXlsx,
 } from "../api/client";
+import { exportCsv, useSort, SortTh } from "../lib/adminTable";
 
 // ── shared small helpers ──────────────────────────────────────────────────────
 function useAsync(fn, deps = []) {
@@ -145,26 +146,25 @@ export function KadDashboard({ actor, selectedPeriod, onAnyAction }) {
       {/* Per-project (read-only summary) */}
       <h3 className="t-subtitle mt-4 mb-2">Projects</h3>
       {projects?.length === 0 && <div className="empty"><p className="empty-body">No projects in this KAD yet.</p></div>}
-      {projects?.map(p => (
-        <div key={p.id} className="card" style={{ marginBottom: 10 }}>
-          <div className="flex justify-between items-center" style={{ flexWrap: "wrap", gap: 8 }}>
-            <div>
-              <strong>{p.project_name}</strong>
-              <span className="t-caption" style={{ marginLeft: 6 }}>{p.client_name}</span>
-            </div>
-            <span className="badge badge-neutral">{p.status}</span>
-          </div>
-          <div className="flex items-center gap-3 mt-2" style={{ flexWrap: "wrap" }}>
-            <HealthBadge value={p.health_computed} label="computed" />
-            <HealthBadge value={p.health_lead} label="lead" />
-          </div>
-          <div className="flex items-center gap-3 mt-2" style={{ flexWrap: "wrap" }}>
-            <span className="t-caption">Contract: <strong>{money(p.contract_value)}</strong></span>
-            <span className="t-caption">Collected: <strong>{money(p.revenue_collected)}</strong></span>
-            <span className="t-caption">({pct(p.collection_pct)})</span>
-          </div>
-        </div>
-      ))}
+      {projects?.length > 0 && (
+        <div className="card" style={{ padding: 0 }}><div className="table-wrap"><table>
+          <thead><tr><th>Project</th><th>Client</th><th>Status</th><th>Health (computed)</th><th>Health (lead)</th><th>Contract</th><th>Collected</th><th>Collection %</th></tr></thead>
+          <tbody>
+            {projects.map(p => (
+              <tr key={p.id}>
+                <td><strong>{p.project_name}</strong></td>
+                <td>{p.client_name}</td>
+                <td><span className="badge badge-neutral">{p.status}</span></td>
+                <td><HealthBadge value={p.health_computed} /></td>
+                <td><HealthBadge value={p.health_lead} /></td>
+                <td className="t-mono">{money(p.contract_value)}</td>
+                <td className="t-mono">{money(p.revenue_collected)}</td>
+                <td>{pct(p.collection_pct)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div></div>
+      )}
 
       {/* Per-employee */}
       <h3 className="t-subtitle mt-4 mb-2">People</h3>
@@ -587,10 +587,7 @@ function FlagManageModal({ flag, people, onClose, onDone }) {
 export function ProjectWorkspace({ actor }) {
   const { data: projects, loading, reload } = useAsync(() => projectsApi.list(), []);
   const [active, setActive] = useState(null);
-
-  // Only show projects this person leads (or all, if director/admin — backend enforces writes)
-  const mine = projects?.filter(p => p.project_lead_id === actor?.id) || [];
-  const others = projects?.filter(p => p.project_lead_id !== actor?.id) || [];
+  const { sorted, sortKey, sortDir, toggle } = useSort(projects, "project_name");
 
   if (loading) return <div className="loading-center"><span className="spinner" /></div>;
 
@@ -598,35 +595,36 @@ export function ProjectWorkspace({ actor }) {
     <div>
       <h2 className="t-title mb-4">Projects</h2>
       {projects?.length === 0 && <div className="empty"><p className="empty-title">No projects yet</p><p className="empty-body">Create one from the Manage tab.</p></div>}
-
-      {mine.length > 0 && <h3 className="t-subtitle mb-2">Projects you lead</h3>}
-      {mine.map(p => <ProjectCard key={p.id} project={p} onOpen={() => setActive(p)} isLead />)}
-
-      {others.length > 0 && <h3 className="t-subtitle mt-4 mb-2" style={{ color: "var(--text-secondary)" }}>Other projects</h3>}
-      {others.map(p => <ProjectCard key={p.id} project={p} onOpen={() => setActive(p)} />)}
+      {projects?.length > 0 && (
+        <div className="card" style={{ padding: 0 }}><div className="table-wrap"><table>
+          <thead><tr>
+            <SortTh label="Project" sortKeyName="project_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Client" sortKeyName="client_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Status" sortKeyName="status" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Contract" sortKeyName="contract_value" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Collected" sortKeyName="revenue_collected" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Collection %" sortKeyName="collection_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <th></th><th></th>
+          </tr></thead>
+          <tbody>
+            {sorted.map(p => (
+              <tr key={p.id}>
+                <td><strong>{p.project_name}</strong></td>
+                <td>{p.client_name}</td>
+                <td><span className="badge badge-neutral">{p.status}</span></td>
+                <td className="t-mono">{money(p.contract_value)}</td>
+                <td className="t-mono">{money(p.revenue_collected)}</td>
+                <td>{pct(p.collection_pct)}</td>
+                <td>{p.project_lead_id === actor?.id && <span className="badge badge-info">You lead</span>}</td>
+                <td><button className="btn btn-secondary btn-sm" onClick={() => setActive(p)}>Open</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div></div>
+      )}
 
       {active && <ProjectDetailModal project={active} actor={actor}
         onClose={() => setActive(null)} onChanged={() => { reload(); }} />}
-    </div>
-  );
-}
-
-function ProjectCard({ project, onOpen, isLead }) {
-  return (
-    <div className="card" style={{ marginBottom: 10 }}>
-      <div className="flex justify-between items-center" style={{ flexWrap: "wrap", gap: 8 }}>
-        <div>
-          <strong>{project.project_name}</strong>
-          {isLead && <span className="badge badge-info" style={{ marginLeft: 8 }}>You lead</span>}
-        </div>
-        <span className="badge badge-neutral">{project.status}</span>
-      </div>
-      <div className="flex items-center gap-3 mt-2" style={{ flexWrap: "wrap" }}>
-        <span className="t-caption">Contract: <strong>{money(project.contract_value)}</strong></span>
-        <span className="t-caption">Collected: <strong>{money(project.revenue_collected)}</strong></span>
-        <span className="t-caption">({pct(project.collection_pct)})</span>
-      </div>
-      <button className="btn btn-secondary btn-sm mt-2" onClick={onOpen}>Open</button>
     </div>
   );
 }

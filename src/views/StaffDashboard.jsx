@@ -149,6 +149,122 @@ function SubmitModal({ alloc, onClose, onDone }) {
 }
 
 // ── Allocation row / card ─────────────────────────────────────────────────────
+/**
+ * Table-row version of AllocRow, used only in the Register tab (KAD Director /
+ * HRBP team view) so it reads as a dense table like the Admin console, instead
+ * of a stack of cards. Same state, same actions, same banners — just laid out
+ * as <tr>/<td> instead of a <div className="card">. The employee's own "My
+ * work" view keeps the card version (AllocRow) unchanged.
+ */
+function AllocTableRow({ alloc, actor, roles, onAction, periodOpen = true }) {
+  const [actionErr, setActionErr] = useState("");
+  const [busy, setBusy]           = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+
+  const isOwner   = alloc.employee_id === actor?.id;
+  const isHRBP    = roles?.some(r => r.role_name === "HRBP" &&
+    (r.scope_employee_id === alloc.employee_id || r.scope_employee_id == null));
+  const isDir     = roles?.some(r => r.role_name === "KAD Director" &&
+    (r.scope_employee_id === alloc.employee_id || r.scope_employee_id == null));
+
+  async function act(fn, label) {
+    setActionErr(""); setBusy(true);
+    try { await fn(); onAction?.(); }
+    catch (e) { setActionErr(e.message || label + " failed"); }
+    finally { setBusy(false); }
+  }
+
+  const acknowledged = alloc.employee_acknowledged === 1;
+  const locked = alloc.target_locked === 1;
+  const workConfirmed = alloc.signoff_performed === 1;
+  const hrbpChecked = alloc.hrbp_signoff_confirmation === 1;
+  const reported = alloc.director_signoff_confirmation === 1;
+  const hasTarget = !!alloc.target_set_by_id;
+  const hasBanner = alloc.hrbp_flag_note || (isOwner && alloc.open_query_count > 0);
+
+  return (
+    <>
+      <tr>
+        <td><strong>{alloc.employee_name}</strong></td>
+        <td>{alloc.output_metric}{alloc.unit && <span className="t-caption"> ({alloc.unit})</span>}</td>
+        <td><WorkStatusBadge status={alloc.work_status} fallback={alloc.signoff_status} /></td>
+        <td>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+            <span className={`badge ${hasTarget ? "badge-success" : "badge-neutral"}`} style={{ fontSize: 10 }}>{hasTarget ? "✓ Target" : "No target"}</span>
+            <span className={`badge ${acknowledged ? "badge-success" : "badge-neutral"}`} style={{ fontSize: 10 }}>{acknowledged ? "✓ Ack" : "Awaiting ack"}</span>
+            <span className={`badge ${workConfirmed ? "badge-success" : "badge-neutral"}`} style={{ fontSize: 10 }}>{workConfirmed ? "✓ Confirmed" : "Unconfirmed"}</span>
+            <span className={`badge ${hrbpChecked ? "badge-success" : "badge-neutral"}`} style={{ fontSize: 10 }}>{hrbpChecked ? "✓ HRBP" : "HRBP pending"}</span>
+            <span className={`badge ${reported ? "badge-success" : "badge-neutral"}`} style={{ fontSize: 10 }}>{reported ? "✓ Reported" : "Not reported"}</span>
+          </div>
+        </td>
+        <td className="t-mono">{hasTarget ? `${alloc.target_value} ${alloc.unit || ""}` : "—"}</td>
+        <td>
+          {locked
+            ? <div className="flex items-center gap-2"><span className="t-mono">{alloc.actual_output_rollup} {alloc.unit || ""}</span><AchievementBar pct={alloc.achievement_pct} /></div>
+            : <span className="t-caption">—</span>}
+        </td>
+        <td>
+          <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+            {!hasTarget && (isHRBP || isDir) && (
+              <SetTargetButton allocId={alloc.id}
+                who={alloc.employee_name} metric={alloc.output_metric} unit={alloc.unit}
+                onDone={() => onAction?.()} />
+            )}
+            {hasTarget && !acknowledged && !isOwner && (isHRBP || isDir) && (
+              <span className="badge badge-warning" style={{ alignSelf: "center" }}>Awaiting ack</span>
+            )}
+            {locked && !isOwner && (isHRBP || isDir) && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setReviewing(true)}>Review work</button>
+            )}
+            {locked && !isOwner && isHRBP && !reported && !alloc.hrbp_flag_note && (
+              <button className="btn btn-ghost btn-sm" disabled={busy}
+                onClick={() => { const note = prompt("Flag this row for the KAD Director — what should they look at?"); if (note && note.trim()) act(() => allocApi.hrbpFlag(alloc.id, note.trim()), "Flag"); }}>
+                ⚑ Flag
+              </button>
+            )}
+            {locked && !workConfirmed && isDir && (
+              <button className="btn btn-secondary btn-sm" disabled={busy}
+                onClick={() => act(() => allocApi.confirm(alloc.id), "Confirm")}>Confirm work</button>
+            )}
+            {workConfirmed && !reported && isDir && (
+              <button className="btn btn-ghost btn-sm" disabled={busy}
+                onClick={() => act(() => allocApi.unconfirm(alloc.id), "Reopen")}>Reopen</button>
+            )}
+          </div>
+          {actionErr && <p className="form-error" style={{ marginTop: 4 }}>{actionErr}</p>}
+        </td>
+      </tr>
+      {hasBanner && (
+        <tr>
+          <td colSpan={7} style={{ background: "var(--surface-2, #fffbeb)", padding: "8px 12px" }}>
+            {alloc.hrbp_flag_note && (
+              <div style={{ marginBottom: isOwner && alloc.open_query_count > 0 ? 6 : 0 }}>
+                <strong>⚑ HRBP flagged for the KAD:</strong> {alloc.hrbp_flag_note}
+                {(isHRBP || isDir) && (
+                  <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8, padding: "2px 6px" }} disabled={busy}
+                    onClick={() => act(() => allocApi.hrbpUnflag(alloc.id), "Clear flag")}>Clear</button>
+                )}
+              </div>
+            )}
+            {isOwner && alloc.open_query_count > 0 && (
+              <div>
+                A manager asked you to revise this work.{" "}
+                <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px" }} onClick={() => setReviewing(true)}>Read the note</button>
+                {" "}then use <strong>Submit output</strong> to send a corrected entry.
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+      {reviewing && (
+        <SubmissionReview alloc={alloc} canQuery={isDir}
+          onClose={() => setReviewing(false)}
+          onQueried={() => { setReviewing(false); onAction?.(); }} />
+      )}
+    </>
+  );
+}
+
 function AllocRow({ alloc, actor, roles, onAction, onSubmit, periodOpen = true }) {
   const [actionErr, setActionErr] = useState("");
   const [busy, setBusy]           = useState(false);
@@ -493,7 +609,12 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
                   <span className="badge badge-neutral">{list.length}</span>
                 </div>
                 <p className="t-caption mb-2">{st.hint}</p>
-                {list.map(a => <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh} onSubmit={null} />)}
+                <div className="card" style={{ padding: 0 }}><div className="table-wrap"><table>
+                  <thead><tr><th>Employee</th><th>Metric</th><th>Status</th><th>Chain</th><th>Target</th><th>Actual</th><th>Actions</th></tr></thead>
+                  <tbody>
+                    {list.map(a => <AllocTableRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh} />)}
+                  </tbody>
+                </table></div></div>
               </div>
             );
           }) : (
@@ -507,7 +628,12 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
                     <span className="badge badge-neutral">{list.length}</span>
                     {list.some(a => stageOf(a) === "needs_target") && <span className="badge badge-warning">needs target</span>}
                   </div>
-                  {list.map(a => <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh} onSubmit={null} />)}
+                  <div className="card" style={{ padding: 0 }}><div className="table-wrap"><table>
+                    <thead><tr><th>Employee</th><th>Metric</th><th>Status</th><th>Chain</th><th>Target</th><th>Actual</th><th>Actions</th></tr></thead>
+                    <tbody>
+                      {list.map(a => <AllocTableRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh} />)}
+                    </tbody>
+                  </table></div></div>
                 </div>
               ))
           )}

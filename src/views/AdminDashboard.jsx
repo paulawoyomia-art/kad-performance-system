@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
 import { OrgDashboard } from "./ManagerViews";
-import { setup, periods as periodsApi, proofs as proofsApi, downloadProof, downloadProofsCsv, downloadProofsZip } from "../api/client";
+import { setup, periods as periodsApi, proofs as proofsApi, downloadProof, downloadProofsCsv, downloadProofsZip, allocations as allocApi } from "../api/client";
 import { exportCsv, useSort, SortTh } from "../lib/adminTable";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -209,7 +209,10 @@ function PeopleTab() {
   const [err, setErr]           = useState("");
   const [saving, setSaving]     = useState(false);
   const [newPw, setNewPw]       = useState(null);
-  const { sorted, sortKey, sortDir, toggle } = useSort(people, "full_name");
+  const [onlyNeverLoggedIn, setOnlyNeverLoggedIn] = useState(false);
+  const filtered = onlyNeverLoggedIn ? (people || []).filter(p => !p.last_login_at) : people;
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, "full_name");
+  const neverLoggedInCount = (people || []).filter(p => !p.last_login_at).length;
 
   function f(k, v)   { setForm(p => ({...p, [k]: v})); }
   function edf(k, v) { setEditing(p => ({...p, [k]: v})); }
@@ -221,6 +224,7 @@ function PeopleTab() {
       { key: "staff_type", label: "Type" }, { key: "kad_id", label: "KAD ID" },
       { key: "kad_name", label: "KAD" }, { key: "email", label: "Email" },
       { key: "status", label: "Status" }, { key: "is_hr_manager", label: "HR Manager" },
+      { key: "last_login_at", label: "Last Login" },
     ]);
   }
 
@@ -277,6 +281,13 @@ function PeopleTab() {
             <option value="">All KADs</option>
             {kads?.map(k => <option key={k.id} value={k.id}>{k.kad_name}</option>)}
           </select>
+          <button
+            className={`btn btn-sm ${onlyNeverLoggedIn ? "btn-primary" : "btn-secondary"}`}
+            onClick={() => setOnlyNeverLoggedIn(v => !v)}
+            title="Show only people who have never logged in even once"
+          >
+            {onlyNeverLoggedIn ? "✓ " : ""}Never logged in{neverLoggedInCount > 0 ? ` (${neverLoggedInCount})` : ""}
+          </button>
         </div>
         <div className="flex gap-2">
           {DownloadTemplate("People", setup.peopleTemplate)}
@@ -323,7 +334,14 @@ function PeopleTab() {
                     <td><span className="badge badge-neutral">{p.staff_type}</span></td>
                     <td>{p.kad_name || `KAD ${p.kad_id}`}</td>
                     <td className="t-caption">{p.email}</td>
-                    <td><StatusBadge status={p.status}/>{p.must_change_password ? <span className="badge badge-warning" style={{marginLeft:4}}>First login</span> : null}</td>
+                    <td>
+                      <StatusBadge status={p.status}/>
+                      {!p.last_login_at
+                        ? <span className="badge badge-danger" style={{marginLeft:4}} title="Has never logged in, even once">Never logged in</span>
+                        : p.must_change_password
+                          ? <span className="badge badge-warning" style={{marginLeft:4}} title="Has logged in before, but a password reset is pending completion">Password reset pending</span>
+                          : null}
+                    </td>
                     <td>
                       {p.is_hr_manager
                         ? <span className="badge badge-success" title="Granted automatically when a person holds the HRBP role. Manage this via Role Assignments.">HR Manager</span>
@@ -869,6 +887,29 @@ function EditProjectModal({ project, clients, people, onClose, onDone }) {
 function AllocationsTab() {
   const { data: periods, loading: pLoading, reload } = useAsync(() => setup.listPeriods());
   const [adding, setAdding] = useState(false);
+  const [periodFilter, setPeriodFilter] = useState("");
+  const { data: rawAllocations, loading: aLoading, reload: reloadAllocs } =
+    useAsync(() => allocApi.list(periodFilter || null), [periodFilter]);
+  const { sorted, sortKey, sortDir, toggle } = useSort(rawAllocations, "id");
+
+  function doExportAllocations() {
+    exportCsv("allocations.csv", sorted, [
+      { key: "id", label: "ID" }, { key: "employee_code", label: "Employee Code" },
+      { key: "employee_name", label: "Employee" }, { key: "employee_email", label: "Email" },
+      { key: "kad_name", label: "KAD" }, { key: "project_name", label: "Project" },
+      { key: "period_id", label: "Period ID" }, { key: "output_metric", label: "Metric" },
+      { key: "unit", label: "Unit" }, { key: "target_value", label: "Target" },
+      { key: "actual_output_rollup", label: "Actual" }, { key: "achievement_pct", label: "Achievement %" },
+      { key: "work_status", label: "Status" },
+    ]);
+  }
+
+  const WORK_STATUS_CLS = {
+    "Target not locked": "badge-neutral", "Awaiting submission": "badge-neutral",
+    "Under review": "badge-warning", "Queried": "badge-danger",
+    "Work confirmed": "badge-success", "HRBP checked": "badge-success", "Reported": "badge-success",
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -883,10 +924,10 @@ function AllocationsTab() {
       </div>
       <div className="card" style={{marginBottom:16,padding:16}}>
         <p className="t-label" style={{marginBottom:8}}>Bulk import from CSV</p>
-        <ImportRow label="allocations" onImport={setup.importAllocations} onDone={reload}/>
+        <ImportRow label="allocations" onImport={setup.importAllocations} onDone={()=>{reload();reloadAllocs();}}/>
       </div>
       {pLoading ? <div className="loading-center"><span className="spinner"/></div> : (
-        <div className="card" style={{padding:16}}>
+        <div className="card" style={{marginBottom:16,padding:16}}>
           <p className="t-label" style={{marginBottom:12}}>Active periods</p>
           {periods?.filter(p=>p.status!=="Closed").length === 0
             ? <div className="empty"><p className="empty-title">No open periods</p><p className="empty-body">Create a period in the Periods tab first.</p></div>
@@ -905,7 +946,51 @@ function AllocationsTab() {
           }
         </div>
       )}
-      {adding && <AddAllocationModal onClose={()=>setAdding(false)} onDone={()=>{setAdding(false);reload();}} />}
+
+      <div className="flex justify-between items-center mb-2" style={{flexWrap:"wrap", gap:8}}>
+        <div className="flex gap-2 items-center">
+          <p className="t-label" style={{margin:0}}>All allocations</p>
+          <select className="form-select" style={{width:200}} value={periodFilter} onChange={e=>setPeriodFilter(e.target.value)}>
+            <option value="">All periods</option>
+            {periods?.map(p=><option key={p.id} value={p.id}>{p.period_label}</option>)}
+          </select>
+        </div>
+        <button className="btn btn-secondary btn-sm" onClick={doExportAllocations}>Export CSV</button>
+      </div>
+      {aLoading ? <div className="loading-center"><span className="spinner"/></div> : (
+        <div className="card" style={{padding:0}}><div className="table-wrap"><table>
+          <thead><tr>
+            <SortTh label="ID" sortKeyName="id" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Employee" sortKeyName="employee_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Email" sortKeyName="employee_email" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="KAD" sortKeyName="kad_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Project" sortKeyName="project_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Metric" sortKeyName="output_metric" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Target" sortKeyName="target_value" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Actual" sortKeyName="actual_output_rollup" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Achievement" sortKeyName="achievement_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <SortTh label="Status" sortKeyName="work_status" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+          </tr></thead>
+          <tbody>
+            {sorted?.length===0 && <tr><td colSpan={10}><div className="empty"><p className="empty-title">No allocations yet</p><p className="empty-body">Add one, or import a CSV.</p></div></td></tr>}
+            {sorted?.map(a=>(
+              <tr key={a.id}>
+                <td className="t-caption">{a.id}</td>
+                <td><strong>{a.employee_name}</strong> <span className="t-caption">({a.employee_code})</span></td>
+                <td className="t-caption">{a.employee_email}</td>
+                <td>{a.kad_name}</td>
+                <td>{a.project_name}</td>
+                <td>{a.output_metric} <span className="t-caption">{a.unit ? `(${a.unit})` : ""}</span></td>
+                <td className="t-mono">{a.target_value ?? "—"}</td>
+                <td className="t-mono">{a.actual_output_rollup ?? 0}</td>
+                <td>{a.achievement_pct == null ? "—" : `${Math.round(a.achievement_pct*100)}%`}</td>
+                <td><span className={`badge ${WORK_STATUS_CLS[a.work_status] || "badge-neutral"}`}>{a.work_status}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div></div>
+      )}
+      {adding && <AddAllocationModal onClose={()=>setAdding(false)} onDone={()=>{setAdding(false);reload();reloadAllocs();}} />}
     </div>
   );
 }
