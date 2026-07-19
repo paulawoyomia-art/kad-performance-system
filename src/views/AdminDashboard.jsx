@@ -209,10 +209,10 @@ function PeopleTab() {
   const [err, setErr]           = useState("");
   const [saving, setSaving]     = useState(false);
   const [newPw, setNewPw]       = useState(null);
-  const [onlyNeverLoggedIn, setOnlyNeverLoggedIn] = useState(false);
-  const filtered = onlyNeverLoggedIn ? (people || []).filter(p => !p.last_login_at) : people;
+  const [onlyPwNotChanged, setOnlyPwNotChanged] = useState(false);
+  const filtered = onlyPwNotChanged ? (people || []).filter(p => p.must_change_password) : people;
   const { sorted, sortKey, sortDir, toggle } = useSort(filtered, "full_name");
-  const neverLoggedInCount = (people || []).filter(p => !p.last_login_at).length;
+  const pwNotChangedCount = (people || []).filter(p => p.must_change_password).length;
 
   function f(k, v)   { setForm(p => ({...p, [k]: v})); }
   function edf(k, v) { setEditing(p => ({...p, [k]: v})); }
@@ -224,7 +224,7 @@ function PeopleTab() {
       { key: "staff_type", label: "Type" }, { key: "kad_id", label: "KAD ID" },
       { key: "kad_name", label: "KAD" }, { key: "email", label: "Email" },
       { key: "status", label: "Status" }, { key: "is_hr_manager", label: "HR Manager" },
-      { key: "last_login_at", label: "Last Login" },
+      { key: "must_change_password", label: "Password Changed" },
     ]);
   }
 
@@ -282,11 +282,11 @@ function PeopleTab() {
             {kads?.map(k => <option key={k.id} value={k.id}>{k.kad_name}</option>)}
           </select>
           <button
-            className={`btn btn-sm ${onlyNeverLoggedIn ? "btn-primary" : "btn-secondary"}`}
-            onClick={() => setOnlyNeverLoggedIn(v => !v)}
-            title="Show only people who have never logged in even once"
+            className={`btn btn-sm ${onlyPwNotChanged ? "btn-primary" : "btn-secondary"}`}
+            onClick={() => setOnlyPwNotChanged(v => !v)}
+            title="Show only people who haven't changed their password yet"
           >
-            {onlyNeverLoggedIn ? "✓ " : ""}Never logged in{neverLoggedInCount > 0 ? ` (${neverLoggedInCount})` : ""}
+            {onlyPwNotChanged ? "✓ " : ""}Password not changed{pwNotChangedCount > 0 ? ` (${pwNotChangedCount})` : ""}
           </button>
         </div>
         <div className="flex gap-2">
@@ -336,11 +336,9 @@ function PeopleTab() {
                     <td className="t-caption">{p.email}</td>
                     <td>
                       <StatusBadge status={p.status}/>
-                      {!p.last_login_at
-                        ? <span className="badge badge-danger" style={{marginLeft:4}} title="Has never logged in, even once">Never logged in</span>
-                        : p.must_change_password
-                          ? <span className="badge badge-warning" style={{marginLeft:4}} title="Has logged in before, but a password reset is pending completion">Password reset pending</span>
-                          : null}
+                      {p.must_change_password
+                        ? <span className="badge badge-warning" style={{marginLeft:4}}>Password not changed</span>
+                        : null}
                     </td>
                     <td>
                       {p.is_hr_manager
