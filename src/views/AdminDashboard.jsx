@@ -519,6 +519,8 @@ function PeriodsTab() {
   const [err, setErr]     = useState("");
   const [saving, setSaving] = useState(false);
   const [actionErr, setActionErr] = useState({});
+  const [expanded, setExpanded] = useState({});   // periodId → per-KAD status rows
+  const [openMsg, setOpenMsg] = useState({});      // periodId → summary after an open call
   const { sorted, sortKey, sortDir, toggle } = useSort(allPeriods, "start_date", "desc");
   function f(k,v){ setForm(p=>({...p,[k]:v})); }
 
@@ -529,6 +531,37 @@ function PeriodsTab() {
   async function act(fn, id){ setActionErr({});
     try{ await fn(id); reload(); }
     catch(e){ setActionErr({[id]: e.message}); } }
+
+  // Open ready KADs; report which opened and which are still blocked.
+  async function openReadyKads(periodId){ setActionErr({});
+    try{
+      const r = await periodsApi.open(periodId);
+      const openedN = (r.opened?.length || 0);
+      const notReady = r.not_ready || [];
+      setOpenMsg(m => ({ ...m, [periodId]: {
+        text: openedN > 0
+          ? `Opened ${openedN} KAD${openedN>1?"s":""}.${notReady.length ? ` ${notReady.length} still not ready.` : " All ready KADs are open."}`
+          : notReady.length
+            ? `No new KADs ready to open — ${notReady.length} still need targets/acknowledgements.`
+            : `All KADs already open.`,
+        notReady,
+      }}));
+      if (expanded[periodId]) await loadKadStatus(periodId);
+      reload();
+    } catch(e){ setActionErr({[periodId]: e.message}); }
+  }
+
+  async function loadKadStatus(periodId){
+    try{
+      const r = await periodsApi.kadStatus(periodId);
+      setExpanded(x => ({ ...x, [periodId]: r.kads || [] }));
+    } catch(e){ setActionErr({[periodId]: e.message}); }
+  }
+
+  function toggleExpand(periodId){
+    if (expanded[periodId]) { setExpanded(x => { const n = {...x}; delete n[periodId]; return n; }); }
+    else loadKadStatus(periodId);
+  }
 
   function doExport() {
     exportCsv("periods.csv", sorted, [
@@ -564,6 +597,7 @@ function PeriodsTab() {
           <tbody>
             {sorted?.length===0 && <tr><td colSpan={8}><div className="empty"><p className="empty-title">No periods yet</p></div></td></tr>}
             {sorted?.map(p=>(
+              <>
               <tr key={p.id}>
                 <td className="t-caption">{p.id}</td>
                 <td><strong>{p.period_label}</strong></td>
@@ -573,15 +607,55 @@ function PeriodsTab() {
                 <td><StatusBadge status={p.status}/></td>
                 <td><span className="t-mono">{p.locked_count}/{p.allocation_count}</span> locked</td>
                 <td>
-                  <div className="flex gap-2">
-                    {p.status==="Drafting" && <button className="btn btn-secondary btn-sm" onClick={()=>act(periodsApi.open, p.id)}>Open</button>}
+                  <div className="flex gap-2" style={{flexWrap:"wrap"}}>
+                    {(p.status==="Drafting" || p.status==="Open") &&
+                      <button className="btn btn-secondary btn-sm" onClick={()=>openReadyKads(p.id)}
+                        title="Open every KAD whose targets are all set and acknowledged. KADs that aren't ready stay locked; run this again once their director finishes.">
+                        {p.status==="Open" ? "Open more KADs" : "Open ready KADs"}
+                      </button>}
+                    {(p.status==="Open" || p.status==="Drafting") &&
+                      <button className="btn btn-ghost btn-sm" onClick={()=>toggleExpand(p.id)}>
+                        {expanded[p.id] ? "Hide KADs" : "Per-KAD status"}
+                      </button>}
                     {p.status==="Open"     && <button className="btn btn-danger btn-sm"    onClick={()=>act(periodsApi.close, p.id)}>Close</button>}
                     {p.status==="Drafting" && <button className="btn btn-ghost btn-sm" onClick={()=>setEditing(p)}>Edit</button>}
                     {p.status==="Drafting" && <button className="btn btn-danger btn-sm" onClick={()=>{ if(confirm(`Delete period "${p.period_label}"?`)) act(setup.deletePeriod, p.id); }}>Delete</button>}
                     {actionErr[p.id] && <span className="t-caption" style={{color:"var(--danger)"}}>{actionErr[p.id]}</span>}
                   </div>
+                  {openMsg[p.id] && <p className="t-caption" style={{marginTop:6}}>{openMsg[p.id].text}</p>}
                 </td>
               </tr>
+              {expanded[p.id] && (
+                <tr key={p.id+"-kads"}>
+                  <td colSpan={8} style={{background:"var(--surface)", padding:"12px 16px"}}>
+                    <p className="t-label" style={{marginBottom:8}}>Per-KAD readiness for {p.period_label}</p>
+                    <div className="table-wrap"><table>
+                      <thead><tr><th>KAD</th><th>Status</th><th>Targeted</th><th>Acknowledged</th><th>Ready</th><th></th></tr></thead>
+                      <tbody>
+                        {expanded[p.id].length===0 && <tr><td colSpan={6}><span className="t-caption">No allocations in this period yet.</span></td></tr>}
+                        {expanded[p.id].map(k=>(
+                          <tr key={k.kad_id}>
+                            <td><strong>{k.kad_name}</strong></td>
+                            <td><StatusBadge status={k.status}/></td>
+                            <td className="t-mono">{k.targeted}/{k.total}</td>
+                            <td className="t-mono">{k.acknowledged}/{k.total}</td>
+                            <td>{k.all_ready
+                              ? <span className="badge badge-success">Ready</span>
+                              : <span className="badge badge-warning">
+                                  {k.total-k.targeted>0 ? `${k.total-k.targeted} need target` : `${k.total-k.acknowledged} need ack`}
+                                </span>}</td>
+                            <td>
+                              {k.status!=="Open" && k.all_ready && p.status!=="Closed" &&
+                                <button className="btn btn-secondary btn-sm" onClick={()=>openReadyKads(p.id)}>Open this KAD</button>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table></div>
+                  </td>
+                </tr>
+              )}
+              </>
             ))}
           </tbody>
         </table></div></div>
