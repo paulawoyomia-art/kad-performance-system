@@ -141,6 +141,7 @@ export const periods = {
   open:  (id)    => req("POST", `/periods/${id}/open`),
   close: (id)    => req("POST", `/periods/${id}/close`),
   gate:  (id)    => req("GET",  `/periods/${id}/gate`),
+  kadStatus: (id) => req("GET", `/periods/${id}/kad-status`),
 };
 
 // ── currencies (read-only, any authenticated actor — for project creation) ──
