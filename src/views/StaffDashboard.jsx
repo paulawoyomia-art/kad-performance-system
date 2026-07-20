@@ -213,7 +213,7 @@ function AllocTableRow({ alloc, actor, roles, onAction, periodOpen = true }) {
             {hasTarget && !acknowledged && !isOwner && (isHRBP || isDir) && (
               <span className="badge badge-warning" style={{ alignSelf: "center" }}>Awaiting ack</span>
             )}
-            {locked && !isOwner && (isHRBP || isDir) && (
+            {locked && !isOwner && (isHRBP || isDir || isLM) && (
               <button className="btn btn-ghost btn-sm" onClick={() => setReviewing(true)}>Review work</button>
             )}
             {locked && !isOwner && isHRBP && !reported && !alloc.hrbp_flag_note && (
@@ -222,11 +222,11 @@ function AllocTableRow({ alloc, actor, roles, onAction, periodOpen = true }) {
                 ⚑ Flag
               </button>
             )}
-            {locked && !workConfirmed && isDir && (
+            {locked && !workConfirmed && (isDir || isLM) && (
               <button className="btn btn-secondary btn-sm" disabled={busy}
                 onClick={() => act(() => allocApi.confirm(alloc.id), "Confirm")}>Confirm work</button>
             )}
-            {workConfirmed && !reported && isDir && (
+            {workConfirmed && !reported && (isDir || isLM) && (
               <button className="btn btn-ghost btn-sm" disabled={busy}
                 onClick={() => act(() => allocApi.unconfirm(alloc.id), "Reopen")}>Reopen</button>
             )}
@@ -783,12 +783,14 @@ export default function StaffDashboard() {
   const isHRBP      = hasRole("HRBP");
   const isExec      = hasRole("Executive");
 
-  // Role-minimal model (Line Manager + Project Lead deferred):
+  // Role-minimal model (Project Lead deferred):
   //   Employee      → My work
+  //   Line Manager  → My work + Register (set targets, confirm their team's work)
   //   HRBP          → My work + Register
   //   KAD Director  → My work + Register + KAD dashboard + Projects
   //   Executive/CEO → Organisation
-  const canRegister = isHRBP || isDirector;   // allocate/target/confirm
+  const isLineManager = hasRole("Line Manager");
+  const canRegister = isHRBP || isDirector || isLineManager;   // allocate/target/confirm
   const canKadDash  = isDirector;             // detailed KAD review + sign-off
   const canProjects = isDirector;             // projects + clients
   const canOrg      = isExec;                 // cross-KAD consolidation
