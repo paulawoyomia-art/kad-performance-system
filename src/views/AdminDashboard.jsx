@@ -960,6 +960,7 @@ function AllocationsTab() {
   const { data: periods, loading: pLoading, reload } = useAsync(() => setup.listPeriods());
   const [adding, setAdding] = useState(false);
   const [periodFilter, setPeriodFilter] = useState("");
+  const [deleting, setDeleting] = useState(null);   // allocation object pending a two-step delete
   const { data: rawAllocations, loading: aLoading, reload: reloadAllocs } =
     useAsync(() => allocApi.list(periodFilter || null), [periodFilter]);
   const { sorted, sortKey, sortDir, toggle } = useSort(rawAllocations, "id");
@@ -1042,9 +1043,10 @@ function AllocationsTab() {
             <SortTh label="Actual" sortKeyName="actual_output_rollup" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
             <SortTh label="Achievement" sortKeyName="achievement_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
             <SortTh label="Status" sortKeyName="work_status" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+            <th></th>
           </tr></thead>
           <tbody>
-            {sorted?.length===0 && <tr><td colSpan={10}><div className="empty"><p className="empty-title">No allocations yet</p><p className="empty-body">Add one, or import a CSV.</p></div></td></tr>}
+            {sorted?.length===0 && <tr><td colSpan={11}><div className="empty"><p className="empty-title">No allocations yet</p><p className="empty-body">Add one, or import a CSV.</p></div></td></tr>}
             {sorted?.map(a=>(
               <tr key={a.id}>
                 <td className="t-caption">{a.id}</td>
@@ -1057,13 +1059,81 @@ function AllocationsTab() {
                 <td className="t-mono">{a.actual_output_rollup ?? 0}</td>
                 <td>{a.achievement_pct == null ? "—" : `${Math.round(a.achievement_pct*100)}%`}</td>
                 <td><span className={`badge ${WORK_STATUS_CLS[a.work_status] || "badge-neutral"}`}>{a.work_status}</span></td>
+                <td><button className="btn btn-danger btn-sm" onClick={()=>setDeleting(a)}>Delete</button></td>
               </tr>
             ))}
           </tbody>
         </table></div></div>
       )}
       {adding && <AddAllocationModal onClose={()=>setAdding(false)} onDone={()=>{setAdding(false);reload();reloadAllocs();}} />}
+      {deleting && <DeleteAllocationModal alloc={deleting} onClose={()=>setDeleting(null)} onDone={()=>{setDeleting(null);reload();reloadAllocs();}} />}
     </div>
+  );
+}
+
+// Two-step delete: step 1 shows exactly what will be deleted and warns about
+// consequences; step 2 requires typing the allocation ID, so a delete can never
+// happen from a single reflexive click. The backend still blocks deletion if the
+// row has submissions (history is protected) — this guards the no-history case.
+function DeleteAllocationModal({ alloc, onClose, onDone }) {
+  const [step, setStep] = useState(1);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy]   = useState(false);
+  const [err, setErr]     = useState("");
+  const idMatches = typed.trim() === String(alloc.id);
+
+  async function reallyDelete() {
+    if (!idMatches) return;
+    setBusy(true); setErr("");
+    try {
+      await setup.deleteAllocation(alloc.id);
+      onDone?.();
+    } catch (e) { setErr(e.message); setBusy(false); }
+  }
+
+  if (step === 1) {
+    return (
+      <Modal title="Delete allocation — step 1 of 2" onClose={onClose}
+        footer={<>
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-danger" onClick={()=>setStep(2)}>Continue to final confirmation</button>
+        </>}>
+        <div className="alert alert-danger" style={{marginBottom:12}}>
+          You're about to permanently delete this allocation. This can't be undone.
+        </div>
+        <div style={{lineHeight:1.9}}>
+          <div><span className="t-caption">ID</span> &nbsp;<strong>#{alloc.id}</strong></div>
+          <div><span className="t-caption">Employee</span> &nbsp;<strong>{alloc.employee_name}</strong> ({alloc.employee_code})</div>
+          <div><span className="t-caption">KAD</span> &nbsp;{alloc.kad_name}</div>
+          <div><span className="t-caption">Project</span> &nbsp;{alloc.project_name}</div>
+          <div><span className="t-caption">Metric</span> &nbsp;{alloc.output_metric}{alloc.unit ? ` (${alloc.unit})` : ""}</div>
+          <div><span className="t-caption">Target</span> &nbsp;{alloc.target_value ?? "—"} &nbsp;·&nbsp; <span className="t-caption">Status</span> &nbsp;{alloc.work_status}</div>
+        </div>
+        <p className="t-caption" style={{marginTop:12}}>
+          If this allocation already has submitted work, deletion will be blocked — the record is protected. Deactivate or reassign instead.
+        </p>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="Delete allocation — step 2 of 2" onClose={onClose}
+      footer={<>
+        <button className="btn btn-secondary" onClick={()=>{setStep(1);setTyped("");}}>Back</button>
+        <button className="btn btn-danger" onClick={reallyDelete} disabled={!idMatches || busy}>
+          {busy ? <span className="spinner" style={{width:14,height:14}}/> : `Permanently delete #${alloc.id}`}
+        </button>
+      </>}>
+      <p style={{marginBottom:12}}>
+        To confirm you're completely certain, type the allocation ID <strong>{alloc.id}</strong> below.
+      </p>
+      <input className="form-input" value={typed} autoFocus
+        onChange={e=>setTyped(e.target.value)}
+        placeholder={`Type ${alloc.id} to confirm`}
+        onKeyDown={e=>{ if(e.key==="Enter" && idMatches) reallyDelete(); }} />
+      {typed && !idMatches && <p className="t-caption" style={{color:"var(--danger)",marginTop:6}}>That doesn't match the ID.</p>}
+      {err && <div className="alert alert-danger" style={{marginTop:12}}>{err}</div>}
+    </Modal>
   );
 }
 

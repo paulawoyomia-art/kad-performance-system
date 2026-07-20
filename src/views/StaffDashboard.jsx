@@ -828,6 +828,8 @@ export default function StaffDashboard() {
     ...(canRegister ? [
       { key: "register", label: "Register", mobileLabel: "Register", icon: Icons.team,
         active: tab === "register", onClick: () => setTab("register") },
+    ] : []),
+    ...((isHRBP || isDirector) ? [
       { key: "consolidation", label: "Consolidation", mobileLabel: "Consol.", icon: Icons.periods,
         active: tab === "consolidation", onClick: () => setTab("consolidation") },
     ] : []),
@@ -884,7 +886,8 @@ export default function StaffDashboard() {
         <>
           {tab === "my"       && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "register" && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
-          {tab === "consolidation" && <ConsolidationView selectedPeriod={selectedPeriod} />}
+          {tab === "consolidation" && (isHRBP || isDirector) && <ConsolidationView selectedPeriod={selectedPeriod} />}
+          {tab === "consolidation" && !(isHRBP || isDirector) && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "kad"      && <KadDashboard actor={actor} selectedPeriod={selectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "projects" && <ProjectWorkspace actor={actor} />}
           {tab === "org"      && <OrgDashboard selectedPeriod={selectedPeriod} />}
