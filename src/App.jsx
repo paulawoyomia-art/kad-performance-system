@@ -3,7 +3,17 @@ import { AuthProvider, useAuth } from "./auth/AuthContext";
 import LoginScreen     from "./views/LoginScreen";
 import FirstLoginSetup from "./views/FirstLoginSetup";
 import AdminDashboard  from "./views/AdminDashboard";
-import StaffDashboard  from "./views/StaffDashboard";
+import NewApp          from "./app/index";
+
+/*
+ * REBUILD BRANCH App.jsx
+ * ----------------------
+ * This version routes operational (non-admin) users to the rebuilt app in
+ * src/app (the Do / Track / Report / More tab set). Admin and login are
+ * unchanged. This file only exists on the `rebuild` branch — production `main`
+ * keeps its own App.jsx pointed at StaffDashboard. When the rebuild is proven,
+ * this becomes main's App.jsx (the cutover).
+ */
 
 function RequireAuth({ children }) {
   const { actor } = useAuth();
@@ -16,7 +26,7 @@ function RequireAuth({ children }) {
 function RequireAdmin({ children }) {
   const { actor, isAdmin } = useAuth();
   if (!actor) return <Navigate to="/login" replace />;
-  if (!isAdmin()) return <Navigate to="/my" replace />;
+  if (!isAdmin()) return <Navigate to="/app/do" replace />;
   return children;
 }
 
@@ -28,22 +38,25 @@ function AppRoutes() {
       <Route path="/login"         element={<LoginScreen />} />
       <Route path="/setup-account" element={<FirstLoginSetup />} />
 
-      {/* Admin routes */}
-      <Route path="/admin"     element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+      {/* Admin — unchanged, still the separate console */}
+      <Route path="/admin"      element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
       <Route path="/admin/:tab" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
 
-      {/* Staff routes — current tab set */}
-      <Route path="/my"       element={<RequireAuth><StaffDashboard /></RequireAuth>} />
-      <Route path="/register" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
-      <Route path="/consolidation" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
-      <Route path="/kad"      element={<RequireAuth><StaffDashboard /></RequireAuth>} />
-      <Route path="/projects" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
-      <Route path="/org"      element={<RequireAuth><StaffDashboard /></RequireAuth>} />
-      {/* Legacy aliases — StaffDashboard remaps these to the new tabs (old bookmarks) */}
-      <Route path="/team"      element={<RequireAuth><StaffDashboard /></RequireAuth>} />
-      <Route path="/flags"     element={<RequireAuth><StaffDashboard /></RequireAuth>} />
-      <Route path="/manage"    element={<RequireAuth><StaffDashboard /></RequireAuth>} />
-      <Route path="/resources" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+      {/* New operational app — the rebuilt tab set */}
+      <Route path="/app/:tab" element={<RequireAuth><NewApp /></RequireAuth>} />
+      <Route path="/app"      element={<RequireAuth><NewApp /></RequireAuth>} />
+
+      {/* Old staff routes → redirect into the new app so bookmarks still work */}
+      <Route path="/my"            element={<Navigate to="/app/do" replace />} />
+      <Route path="/register"      element={<Navigate to="/app/do" replace />} />
+      <Route path="/consolidation" element={<Navigate to="/app/report" replace />} />
+      <Route path="/kad"           element={<Navigate to="/app/track" replace />} />
+      <Route path="/projects"      element={<Navigate to="/app/more" replace />} />
+      <Route path="/org"           element={<Navigate to="/app/report" replace />} />
+      <Route path="/team"          element={<Navigate to="/app/do" replace />} />
+      <Route path="/flags"         element={<Navigate to="/app/track" replace />} />
+      <Route path="/manage"        element={<Navigate to="/app/do" replace />} />
+      <Route path="/resources"     element={<Navigate to="/app/track" replace />} />
 
       {/* Root redirect based on role */}
       <Route path="/" element={
@@ -53,14 +66,14 @@ function AppRoutes() {
           ? <Navigate to="/setup-account" replace />
           : isAdmin()
           ? <Navigate to="/admin/kads" replace />
-          : <Navigate to="/my" replace />
+          : <Navigate to="/app/do" replace />
       }/>
 
       {/* Catch-all */}
       <Route path="*" element={
         !actor ? <Navigate to="/login" replace /> :
         isAdmin() ? <Navigate to="/admin/kads" replace /> :
-        <Navigate to="/my" replace />
+        <Navigate to="/app/do" replace />
       }/>
     </Routes>
   );
