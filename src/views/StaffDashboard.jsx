@@ -491,7 +491,7 @@ function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAn
             <table className="table-sticky">
               <thead><tr>
                 <th>Output metric</th><th>Project · Client</th><th>Target</th>
-                <th>Progress</th><th>Status</th><th></th>
+                <th>Reported to date</th><th>Status</th><th></th>
               </tr></thead>
               <tbody>
                 {allocs.map(a => (
@@ -585,25 +585,19 @@ function MyAllocationRow({ alloc, actor, roles, expanded, onToggle, onSubmit, on
             {locked && (
               <div style={{ background: "var(--card)", borderRadius: "var(--radius)", padding: "12px 14px", marginBottom: 12 }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
-                  <span className="t-caption">
-                    {alloc.aggregation === "latest" ? "Latest reported" : alloc.aggregation === "average" ? "Average to date" : "Reported to date"}
-                  </span>
-                  <span style={{ fontWeight: 600 }}>{alloc.actual_output_rollup ?? 0} of {alloc.target_value} {unit}</span>
+                  <span className="t-caption">Reported to date</span>
+                  <span style={{ fontWeight: 600 }}>{alloc.actual_output_rollup} of {alloc.target_value} {unit}</span>
                 </div>
                 <AchievementBar pct={alloc.achievement_pct} />
                 {!workConfirmed && kadOpen && (
                   <p className="t-caption" style={{ marginTop: 8, color: "var(--text-muted)" }}>
-                    {alloc.aggregation === "latest"
-                      ? "Your latest entry is your current figure — a new submission replaces it. Keep updating until your manager confirms."
-                      : alloc.aggregation === "average"
-                        ? "Your figure is the average of all entries. Keep adding until your manager confirms."
-                        : "Each entry adds to your total. Keep adding until your manager confirms — nothing is final until then."}
+                    Each entry adds to your total. Keep adding until your manager confirms the work — nothing is final until then.
                   </p>
                 )}
               </div>
             )}
 
-            {/* Submission log: each entry */}
+            {/* Submission log: each entry's increment */}
             {locked && subs && subs.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <p className="t-label" style={{ marginBottom: 6 }}>Your submissions</p>
@@ -612,7 +606,7 @@ function MyAllocationRow({ alloc, actor, roles, expanded, onToggle, onSubmit, on
                     <tr key={s.id}>
                       <td className="t-caption">{s.date_of_activity || "—"}</td>
                       <td>{s.output_narrative || <span className="t-caption">—</span>}</td>
-                      <td className="t-mono" style={{ textAlign: "right" }}>{alloc.aggregation === "sum" ? "+" : ""}{s.actual_output} {unit}</td>
+                      <td className="t-mono" style={{ textAlign: "right" }}>+{s.actual_output} {unit}</td>
                       <td className="t-caption">{s.revised_at ? "revised" : s.query_note && !s.query_resolved_at ? "queried" : ""}</td>
                     </tr>
                   ))}
