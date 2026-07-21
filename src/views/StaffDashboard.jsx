@@ -23,7 +23,6 @@ function useAsync(fn, deps = []) {
 }
 
 function pct(n) { return n == null ? "—" : `${(n * 100).toFixed(0)}%`; }
-function currency(n) { return n == null ? "—" : `₦${Number(n).toLocaleString()}`; }
 
 function AchievementBar({ pct: p }) {
   if (p == null) return <span className="t-caption">No submissions yet</span>;

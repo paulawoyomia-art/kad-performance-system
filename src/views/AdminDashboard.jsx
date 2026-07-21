@@ -6,6 +6,15 @@ import { setup, periods as periodsApi, proofs as proofsApi, downloadProof, downl
 import { exportCsv, useSort, SortTh } from "../lib/adminTable";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+const CURRENCY_SYMBOL = { USD: "$", NGN: "₦", XOF: "CFA ", XAF: "FCFA " };
+// Format a monetary value with its currency symbol (native currency required here —
+// the admin projects table shows each project in its own currency).
+const money = (n, currency = "NGN") => {
+  if (n == null) return "—";
+  const sym = CURRENCY_SYMBOL[currency] || (currency ? currency + " " : "");
+  return `${sym}${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+};
+
 function useAsync(fn, deps = []) {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
@@ -784,7 +793,7 @@ function ProjectsTab() {
                 <td>{p.country || "Nigeria"} <span className="t-caption">({p.currency || "NGN"})</span></td>
                 <td>{leadName(p) || <span className="t-caption">—</span>}</td>
                 <td><StatusBadge status={p.status}/></td>
-                <td className="t-mono">{p.currency||"NGN"} {(p.contract_value||0).toLocaleString()}</td>
+                <td className="t-mono">{money(p.contract_value, p.currency || "NGN")}</td>
                 <td>
                   <div className="flex items-center gap-2">
                     <div className="progress-bar" style={{width:60, flexShrink:0}}>

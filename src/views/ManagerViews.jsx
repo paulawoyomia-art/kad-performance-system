@@ -27,7 +27,15 @@ function useAsync(fn, deps = []) {
   return { data, loading, error, reload };
 }
 const pct = (n) => (n == null ? "—" : `${(n * 100).toFixed(0)}%`);
-const money = (n) => (n == null ? "—" : `₦${Number(n).toLocaleString()}`);
+const CURRENCY_SYMBOL = { USD: "$", NGN: "₦", XOF: "CFA ", XAF: "FCFA " };
+// Format a monetary value with the correct symbol. Defaults to USD because the
+// org/consolidated roll-ups report in USD (Telinno's reporting currency). Pass
+// the native currency code for values shown in their own currency.
+const money = (n, currency = "USD") => {
+  if (n == null) return "—";
+  const sym = CURRENCY_SYMBOL[currency] || (currency ? currency + " " : "");
+  return `${sym}${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+};
 
 const HEALTH_COLORS = {
   "On track": "badge-success", "Minor issues": "badge-info",
@@ -157,8 +165,8 @@ export function KadDashboard({ actor, selectedPeriod, onAnyAction }) {
                 <td><span className="badge badge-neutral">{p.status}</span></td>
                 <td><HealthBadge value={p.health_computed} /></td>
                 <td><HealthBadge value={p.health_lead} /></td>
-                <td className="t-mono">{money(p.contract_value)}</td>
-                <td className="t-mono">{money(p.revenue_collected)}</td>
+                <td className="t-mono">{money(p.contract_value, p.currency)}</td>
+                <td className="t-mono">{money(p.revenue_collected, p.currency)}</td>
                 <td>{pct(p.collection_pct)}</td>
               </tr>
             ))}
@@ -216,6 +224,12 @@ export function ManageView({ actor, selectedPeriod }) {
   const [showProject, setShowProject] = useState(false);
   const [msg, setMsg] = useState("");
 
+  // Project creation is for KAD Directors / HRBP, not plain Line Managers.
+  // (Backend enforces this too — this just hides the button they can't use.)
+  const roles = actor?.roles || [];
+  const canMakeProjects = actor?.staff_type === "Management" || actor?.is_hr_manager
+    || roles.some(r => r.role_name === "KAD Director" || r.role_name === "HRBP");
+
   return (
     <div>
       <h2 className="t-title mb-4">Manage</h2>
@@ -227,11 +241,13 @@ export function ManageView({ actor, selectedPeriod }) {
           <p className="t-caption mt-1">Assign a new output to track for an employee — the metric and unit. A target is set afterwards.</p>
           <button className="btn btn-primary btn-sm mt-3" onClick={() => setShowAlloc(true)}>+ New allocation</button>
         </div>
-        <div className="card">
-          <h3 className="t-subtitle">New project</h3>
-          <p className="t-caption mt-1">Create a project under a client. You can assign a Project Lead and manage it afterwards.</p>
-          <button className="btn btn-primary btn-sm mt-3" onClick={() => setShowProject(true)}>+ New project</button>
-        </div>
+        {canMakeProjects && (
+          <div className="card">
+            <h3 className="t-subtitle">New project</h3>
+            <p className="t-caption mt-1">Create a project under a client. You can assign a Project Lead and manage it afterwards.</p>
+            <button className="btn btn-primary btn-sm mt-3" onClick={() => setShowProject(true)}>+ New project</button>
+          </div>
+        )}
       </div>
 
       {showAlloc && <NewAllocationModal actor={actor} defaultPeriod={selectedPeriod}
@@ -377,7 +393,7 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
                 <label className="form-label">Unit</label>
                 <input className="form-input" value={newType.unit}
                   onChange={e => setNewType(n => ({ ...n, unit: e.target.value }))}
-                  placeholder="count, %, ₦, km" />
+                  placeholder="count, %, amount, km" />
               </div>
             </div>
             <div className="flex gap-2 mt-2">
@@ -612,8 +628,8 @@ export function ProjectWorkspace({ actor }) {
                 <td><strong>{p.project_name}</strong></td>
                 <td>{p.client_name}</td>
                 <td><span className="badge badge-neutral">{p.status}</span></td>
-                <td className="t-mono">{money(p.contract_value)}</td>
-                <td className="t-mono">{money(p.revenue_collected)}</td>
+                <td className="t-mono">{money(p.contract_value, p.currency)}</td>
+                <td className="t-mono">{money(p.revenue_collected, p.currency)}</td>
                 <td>{pct(p.collection_pct)}</td>
                 <td>{p.project_lead_id === actor?.id && <span className="badge badge-info">You lead</span>}</td>
                 <td><button className="btn btn-secondary btn-sm" onClick={() => setActive(p)}>Open</button></td>
@@ -668,7 +684,7 @@ function ProjectDetailModal({ project, actor, onClose, onChanged }) {
                 {STATUSES.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
-            <div className="form-group"><label className="form-label">Revenue collected (₦)</label>
+            <div className="form-group"><label className="form-label">Revenue collected ({p.currency || "NGN"})</label>
               <input className="form-input" type="number" min="0" value={p.revenue_collected} onChange={e => setP({ ...p, revenue_collected: e.target.value })} />
             </div>
           </div>
@@ -687,7 +703,7 @@ function ProjectDetailModal({ project, actor, onClose, onChanged }) {
       )}
 
       {tab === "slas" && <SlaManager projectId={project.id} slas={slas} reload={reloadSlas} />}
-      {tab === "milestones" && <MilestoneManager projectId={project.id} milestones={milestones} reload={reloadMs} />}
+      {tab === "milestones" && <MilestoneManager projectId={project.id} projectCurrency={project.currency} milestones={milestones} reload={reloadMs} />}
     </Modal>
   );
 }
@@ -754,7 +770,7 @@ function SlaManager({ projectId, slas, reload }) {
   );
 }
 
-function MilestoneManager({ projectId, milestones, reload }) {
+function MilestoneManager({ projectId, projectCurrency, milestones, reload }) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: "", due_date: "", value_amount: "" });
   const [busy, setBusy] = useState(false);
@@ -782,7 +798,7 @@ function MilestoneManager({ projectId, milestones, reload }) {
           </div>
           <div className="flex items-center gap-3 mt-1" style={{ flexWrap: "wrap" }}>
             {m.due_date && <span className="t-caption">Due: {m.due_date}</span>}
-            {m.value_amount > 0 && <span className="t-caption">Value: {money(m.value_amount)}</span>}
+            {m.value_amount > 0 && <span className="t-caption">Value: {money(m.value_amount, projectCurrency)}</span>}
           </div>
           <div className="flex gap-2 mt-2" style={{ flexWrap: "wrap" }}>
             {STATUSES.map(s => <button key={s} className="btn btn-ghost btn-sm" onClick={() => setStatus(m.id, s)} disabled={m.status === s}>{s}</button>)}
@@ -801,7 +817,7 @@ function MilestoneManager({ projectId, milestones, reload }) {
             <div className="form-group"><label className="form-label">Due date</label>
               <input className="form-input" type="date" value={form.due_date} onChange={e => f("due_date", e.target.value)} />
             </div>
-            <div className="form-group"><label className="form-label">Value (₦)</label>
+            <div className="form-group"><label className="form-label">Value ({projectCurrency || "NGN"})</label>
               <input className="form-input" type="number" min="0" value={form.value_amount} onChange={e => f("value_amount", e.target.value)} />
             </div>
           </div>
@@ -1206,7 +1222,7 @@ export function OrgDashboard({ selectedPeriod }) {
       ]);
     } else {
       download(`org-summary-${tag}.csv`, [
-        ["KAD", "Headcount", "Active projects", "Targets locked", "Allocations", "Submissions", "Avg achievement %", "Contract", "Collected", "Collection %", "Below 50%", "Below 20% collection", "Open flags"],
+        ["KAD", "Headcount", "Active projects", "Targets locked", "Allocations", "Submissions", "Avg achievement %", "Contract (USD)", "Collected (USD)", "Collection %", "Below 50%", "Below 20% collection", "Open flags"],
         ...kads.map(k => [k.kad_name, k.headcount, k.active_projects, k.locked, k.allocations, k.submissions, k.avg_achievement == null ? "" : Math.round(k.avg_achievement * 100), k.contract_value, k.revenue_collected, k.collection_pct == null ? "" : Math.round(k.collection_pct * 100), k.below_50, k.below_20, k.open_flags]),
       ]);
     }
@@ -1234,7 +1250,7 @@ export function OrgDashboard({ selectedPeriod }) {
           <div className="tile-label">Open flags{org.urgent_flags > 0 ? ` (${org.urgent_flags} urgent)` : ""}</div>
         </div>
       </div>
-      <p className="t-caption mt-2 mb-3">Revenue: {money(org.revenue_collected)} collected of {money(org.contract_value)} contracted. Output figures reflect KAD-reported (consolidated) work only.</p>
+      <p className="t-caption mt-2 mb-3">Revenue (USD): {money(org.revenue_collected, "USD")} collected of {money(org.contract_value, "USD")} contracted. All figures converted to USD at current FX rates. Output figures reflect KAD-reported (consolidated) work only.</p>
 
       {/* Section tabs */}
       <div className="flex gap-2 mb-3" style={{ flexWrap: "wrap" }}>
@@ -1249,7 +1265,7 @@ export function OrgDashboard({ selectedPeriod }) {
             <table>
               <thead><tr>
                 <th>KAD</th><th>People</th><th>Projects</th><th>Targets</th><th>Subs</th>
-                <th>Achievement</th><th>Collection</th><th>Flags</th>
+                <th>Achievement</th><th>Contract (USD)</th><th>Collected (USD)</th><th>Collection</th><th>Flags</th>
               </tr></thead>
               <tbody>
                 {kads.map(k => (
@@ -1260,12 +1276,28 @@ export function OrgDashboard({ selectedPeriod }) {
                     <td>{k.locked}/{k.allocations}</td>
                     <td>{k.submissions}</td>
                     <td>{k.consolidated > 0 ? pct(k.avg_achievement) : "—"}</td>
+                    <td className="t-mono">{money(k.contract_value, "USD")}</td>
+                    <td className="t-mono">{money(k.revenue_collected, "USD")}</td>
                     <td>{pct(k.collection_pct)}</td>
                     <td>{k.open_flags > 0
                       ? <span className={`badge ${k.urgent_flags > 0 ? "badge-danger" : "badge-warning"}`}>{k.open_flags}</span>
                       : <span className="badge badge-success">0</span>}</td>
                   </tr>
                 ))}
+                {kads.length > 0 && (
+                  <tr style={{ borderTop: "2px solid var(--border-strong)", fontWeight: 500 }}>
+                    <td><strong>Total (USD)</strong></td>
+                    <td>{kads.reduce((s, k) => s + (k.headcount || 0), 0)}</td>
+                    <td>{kads.reduce((s, k) => s + (k.active_projects || 0), 0)}</td>
+                    <td></td>
+                    <td>{kads.reduce((s, k) => s + (k.submissions || 0), 0)}</td>
+                    <td></td>
+                    <td className="t-mono"><strong>{money(kads.reduce((s, k) => s + (k.contract_value || 0), 0), "USD")}</strong></td>
+                    <td className="t-mono"><strong>{money(kads.reduce((s, k) => s + (k.revenue_collected || 0), 0), "USD")}</strong></td>
+                    <td></td>
+                    <td></td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1276,7 +1308,7 @@ export function OrgDashboard({ selectedPeriod }) {
         <div className="card" style={{ padding: 0 }}>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Client</th><th>KAD</th><th>Projects</th><th>Contract</th><th>Collected</th><th>Collection</th></tr></thead>
+              <thead><tr><th>Client</th><th>KAD</th><th>Projects</th><th>Contract (USD)</th><th>Collected (USD)</th><th>Collection</th></tr></thead>
               <tbody>
                 {clients.length === 0 && <tr><td colSpan={6}><span className="t-caption">No clients yet.</span></td></tr>}
                 {clients.map(c => (
@@ -1284,11 +1316,19 @@ export function OrgDashboard({ selectedPeriod }) {
                     <td><strong>{c.client_name}</strong>{c.status !== "Active" && <span className="badge badge-neutral" style={{ marginLeft: 6 }}>{c.status}</span>}</td>
                     <td>{c.kad_name}</td>
                     <td>{c.active_projects}/{c.projects}</td>
-                    <td>{money(c.contract_value)}</td>
-                    <td>{money(c.revenue_collected)}</td>
+                    <td className="t-mono">{money(c.contract_value, "USD")}</td>
+                    <td className="t-mono">{money(c.revenue_collected, "USD")}</td>
                     <td>{c.collection_pct == null ? "—" : <span className={`badge ${c.collection_pct < 0.2 ? "badge-danger" : c.collection_pct < 0.5 ? "badge-warning" : "badge-success"}`}>{pct(c.collection_pct)}</span>}</td>
                   </tr>
                 ))}
+                {clients.length > 0 && (
+                  <tr style={{ borderTop: "2px solid var(--border-strong)", fontWeight: 500 }}>
+                    <td colSpan={3}><strong>Total (USD)</strong></td>
+                    <td className="t-mono"><strong>{money(clients.reduce((s, c) => s + (c.contract_value || 0), 0), "USD")}</strong></td>
+                    <td className="t-mono"><strong>{money(clients.reduce((s, c) => s + (c.revenue_collected || 0), 0), "USD")}</strong></td>
+                    <td></td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1299,24 +1339,34 @@ export function OrgDashboard({ selectedPeriod }) {
         <div className="card" style={{ padding: 0 }}>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Project</th><th>Client</th><th>KAD</th><th>Status</th><th>Contract</th><th>Collected</th><th>Collection</th><th>Heads</th><th>Rev/head</th><th>Achievement</th><th>Lead</th></tr></thead>
+              <thead><tr><th>Project</th><th>Client</th><th>KAD</th><th>Status</th><th>Contract (native)</th><th>Collected (native)</th><th>Contract (USD)</th><th>Collected (USD)</th><th>Collection</th><th>Heads</th><th>Rev/head (USD)</th><th>Achievement</th><th>Lead</th></tr></thead>
               <tbody>
-                {projects.length === 0 && <tr><td colSpan={11}><span className="t-caption">No projects yet.</span></td></tr>}
+                {projects.length === 0 && <tr><td colSpan={13}><span className="t-caption">No projects yet.</span></td></tr>}
                 {projects.map(p => (
                   <tr key={p.id}>
                     <td><strong>{p.project_name}</strong>{p.below_collection && <span title="Below 20% collection" style={{ color: "var(--danger)", marginLeft: 4 }}>⚑</span>}</td>
                     <td>{p.client_name}</td>
                     <td>{p.kad_name}</td>
                     <td><span className="badge badge-neutral">{p.status}</span></td>
-                    <td>{money(p.contract_value)}</td>
-                    <td>{money(p.revenue_collected)}</td>
+                    <td className="t-mono">{money(p.contract_value, p.currency)}</td>
+                    <td className="t-mono">{money(p.revenue_collected, p.currency)}</td>
+                    <td className="t-mono">{money(p.contract_value_usd, "USD")}</td>
+                    <td className="t-mono">{money(p.revenue_collected_usd, "USD")}</td>
                     <td>{p.collection_pct == null ? "—" : pct(p.collection_pct)}</td>
                     <td>{p.headcount}</td>
-                    <td>{p.rev_per_head == null ? "—" : money(p.rev_per_head)}</td>
+                    <td className="t-mono">{p.rev_per_head == null ? "—" : money(p.rev_per_head, "USD")}</td>
                     <td>{p.avg_achievement == null ? "—" : pct(p.avg_achievement)}</td>
                     <td>{p.project_lead || "—"}</td>
                   </tr>
                 ))}
+                {projects.length > 0 && (
+                  <tr style={{ borderTop: "2px solid var(--border-strong)", fontWeight: 500 }}>
+                    <td colSpan={6}><strong>Total (USD)</strong> <span className="t-caption">— native currencies not summable</span></td>
+                    <td className="t-mono"><strong>{money(projects.reduce((s, p) => s + (p.contract_value_usd || 0), 0), "USD")}</strong></td>
+                    <td className="t-mono"><strong>{money(projects.reduce((s, p) => s + (p.revenue_collected_usd || 0), 0), "USD")}</strong></td>
+                    <td colSpan={5}></td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1355,7 +1405,7 @@ export function OrgDashboard({ selectedPeriod }) {
             rows={flags.achievement.map(r => [r.kad_name, r.employee_name, r.project_name, r.output_metric, r.target_value, r.actual, pct(r.achievement_pct)])} danger />
           <FlagBlock title="Collection — projects below 20% revenue collection" empty="All active projects above 20% collection."
             head={["KAD", "Project", "Client", "Contract", "Collected", "Collection", "Lead"]}
-            rows={flags.collection.map(r => [r.kad_name, r.project_name, r.client_name, money(r.contract_value), money(r.revenue_collected), pct(r.collection_pct), r.project_lead || "—"])} />
+            rows={flags.collection.map(r => [r.kad_name, r.project_name, r.client_name, money(r.contract_value, r.currency), money(r.revenue_collected, r.currency), pct(r.collection_pct), r.project_lead || "—"])} />
           <FlagBlock title="Queries — unresolved output queries" empty="No outstanding queries this period."
             head={["KAD", "Employee", "Project", "Metric", "Query"]}
             rows={flags.query.map(r => [r.kad_name, r.employee_name, r.project_name, r.output_metric, r.query_note || "—"])} />
@@ -1464,7 +1514,7 @@ export function ConsolidationView({ selectedPeriod }) {
                         <td>{r.actual}</td>
                         <td style={{ color: r.variance < 0 ? "var(--danger)" : "var(--success)" }}>{r.variance > 0 ? "+" : ""}{r.variance}</td>
                         <td>{r.achievement_pct == null ? "—" : <span className={`badge ${r.achievement_pct >= 0.8 ? "badge-success" : r.achievement_pct >= 0.5 ? "badge-warning" : "badge-danger"}`}>{pct(r.achievement_pct)}</span>}</td>
-                        <td>{r.rev_per_head == null ? "—" : money(r.rev_per_head)}</td>
+                        <td>{r.rev_per_head == null ? "—" : money(r.rev_per_head, "USD")}</td>
                         <td><button className="btn btn-ghost btn-sm" onClick={() => setOpen(o => ({ ...o, [i]: !o[i] }))}>{open[i] ? "Hide" : "IPO"}</button></td>
                       </tr>
                       {open[i] && (
