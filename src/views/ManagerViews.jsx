@@ -267,7 +267,7 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [adding, setAdding] = useState(false);                 // "add a new type" inline form open?
-  const [newType, setNewType] = useState({ metric: "", unit: "" });
+  const [newType, setNewType] = useState({ metric: "", unit: "", aggregation: "sum" });
   const [addingBusy, setAddingBusy] = useState(false);
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -295,11 +295,11 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
     setAddingBusy(true); setErr("");
     try {
       const res = await allocApi.addOutputType({ metric, unit: newType.unit.trim() || null,
-        staff_type: selectedPerson?.staff_type || null });
+        staff_type: selectedPerson?.staff_type || null, aggregation: newType.aggregation });
       await reloadTypes();
       // select the newly-added (or existing) type
       f("output_metric", res.output_type.metric); f("unit", res.output_type.unit || "");
-      setAdding(false); setNewType({ metric: "", unit: "" });
+      setAdding(false); setNewType({ metric: "", unit: "", aggregation: "sum" });
     } catch (e) { setErr(e.message); } finally { setAddingBusy(false); }
   }
 
@@ -360,7 +360,7 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
           <label className="form-label" style={{ margin: 0 }}>Output metric <span>*</span></label>
           {!adding && (
             <button type="button" className="btn btn-ghost btn-sm" style={{ padding: "2px 8px" }}
-              onClick={() => { setAdding(true); setNewType({ metric: "", unit: "" }); }}>
+              onClick={() => { setAdding(true); setNewType({ metric: "", unit: "", aggregation: "sum" }); }}>
               + Add a new type
             </button>
           )}
@@ -395,6 +395,20 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
                   onChange={e => setNewType(n => ({ ...n, unit: e.target.value }))}
                   placeholder="count, %, amount, km" />
               </div>
+            </div>
+            <div className="form-group" style={{ margin: "8px 0 0" }}>
+              <label className="form-label">How do repeated submissions add up?</label>
+              <select className="form-select" value={newType.aggregation}
+                onChange={e => setNewType(n => ({ ...n, aggregation: e.target.value }))}>
+                <option value="sum">Sum — entries add together (sites, km, tickets)</option>
+                <option value="latest">Latest — newest entry is the figure (% complete, uptime)</option>
+                <option value="average">Average — mean of entries (MTTR, response time)</option>
+              </select>
+              <p className="t-caption mt-1">
+                {newType.aggregation === "sum" && "Each submission adds to a running total. Use for things you count."}
+                {newType.aggregation === "latest" && "Each submission replaces the figure. Use for rates and % — they don't add up past 100."}
+                {newType.aggregation === "average" && "The figure is the mean of all submissions. Use for averages like time-to-repair."}
+              </p>
             </div>
             <div className="flex gap-2 mt-2">
               <button type="button" className="btn btn-primary btn-sm" disabled={addingBusy || !newType.metric.trim()}
