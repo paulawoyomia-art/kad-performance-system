@@ -475,8 +475,8 @@ function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAn
     [selectedPeriod, actor.id]
   );
   const [submitting, setSubmitting] = useState(null);
+  const [expanded, setExpanded] = useState(null);   // allocation id whose detail is open
   const refresh = () => { reload(); onAnyAction?.(); };
-  const periodOpen = (periods || []).find(p => String(p.id) === String(selectedPeriod))?.status === "Open";
 
   return (
     <div>
@@ -484,12 +484,178 @@ function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAn
       {!selectedPeriod && <div className="empty"><p className="empty-title">Select a period</p><p className="empty-body">Choose a period above to see your work.</p></div>}
       {selectedPeriod && loading && <div className="loading-center"><span className="spinner" /></div>}
       {selectedPeriod && !loading && allocs?.length === 0 && <div className="empty"><p className="empty-title">Nothing assigned yet</p><p className="empty-body">You don't have any work targets for this period yet. Your manager or HR team will set these up.</p></div>}
-      {allocs?.map(a => (
-        <AllocRow key={a.id} alloc={a} actor={actor} roles={actor.roles} onAction={refresh}
-          onSubmit={setSubmitting} periodOpen={periodOpen} />
-      ))}
+
+      {selectedPeriod && !loading && allocs?.length > 0 && (
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-wrap">
+            <table className="table-sticky">
+              <thead><tr>
+                <th>Output metric</th><th>Project · Client</th><th>Target</th>
+                <th>Reported to date</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody>
+                {allocs.map(a => (
+                  <MyAllocationRow key={a.id} alloc={a} actor={actor} roles={actor.roles}
+                    expanded={expanded === a.id}
+                    onToggle={() => setExpanded(expanded === a.id ? null : a.id)}
+                    onSubmit={setSubmitting} onAction={refresh} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {submitting && <SubmitModal alloc={submitting} onClose={() => setSubmitting(null)} onDone={refresh} />}
     </div>
+  );
+}
+
+// One employee allocation as a table row + an expandable detail panel showing
+// the running submission tally (each entry's increment and the accumulating total).
+function MyAllocationRow({ alloc, actor, roles, expanded, onToggle, onSubmit, onAction }) {
+  const [busy, setBusy] = useState(false);
+  const [subs, setSubs] = useState(null);
+  const [reviewing, setReviewing] = useState(false);
+  const isOwner = alloc.employee_id === actor.id;
+  const hasTarget = !!alloc.target_set_by_id;
+  const acknowledged = alloc.employee_acknowledged === 1;
+  const locked = alloc.target_locked === 1;
+  const workConfirmed = alloc.signoff_performed === 1;
+  const reported = alloc.director_signoff_confirmation === 1;
+  const kadOpen = alloc.kad_is_open === 1;
+  const queried = alloc.open_query_count > 0;
+  const unit = alloc.unit || "";
+
+  // Load submissions when the row is expanded.
+  async function loadSubs() {
+    try { setSubs(await allocApi.listSubmissions(alloc.id)); } catch { setSubs([]); }
+  }
+  function toggle() { if (!expanded) loadSubs(); onToggle(); }
+
+  async function act(fn, label) {
+    setBusy(true);
+    try { await fn(); onAction?.(); if (expanded) loadSubs(); }
+    catch (e) { alert(e.message); } finally { setBusy(false); }
+  }
+
+  // Status the employee actually understands (per-KAD aware).
+  let statusLabel, statusCls;
+  if (!hasTarget)                     { statusLabel = "Awaiting target";  statusCls = "badge-neutral"; }
+  else if (!acknowledged)             { statusLabel = "Accept target";    statusCls = "badge-warning"; }
+  else if (queried)                   { statusLabel = "Revision needed";  statusCls = "badge-danger"; }
+  else if (reported)                  { statusLabel = "Reported";         statusCls = "badge-success"; }
+  else if (workConfirmed)             { statusLabel = "Work confirmed";   statusCls = "badge-success"; }
+  else if (!kadOpen)                  { statusLabel = "Awaiting open";    statusCls = "badge-neutral"; }
+  else                                { statusLabel = "Submitting";       statusCls = "badge-info"; }
+
+  return (
+    <>
+      <tr>
+        <td><strong>{alloc.output_metric}</strong>{unit && <span className="t-caption"> ({unit})</span>}</td>
+        <td>{alloc.project_name}{alloc.client_name && <span className="t-caption"> · {alloc.client_name}</span>}</td>
+        <td className="t-mono">{hasTarget ? `${alloc.target_value} ${unit}` : "—"}</td>
+        <td className="t-mono">{locked ? `${alloc.actual_output_rollup} ${unit}` : "—"}</td>
+        <td><span className={`badge ${statusCls}`}>{statusLabel}</span></td>
+        <td><button className="btn btn-ghost btn-sm" onClick={toggle}>{expanded ? "Hide" : "Details"}</button></td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={6} style={{ background: "var(--surface)", padding: "14px 18px" }}>
+            {/* Lifecycle chain */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <span className={`badge ${hasTarget ? "badge-success" : "badge-neutral"}`}>{hasTarget ? "✓ Target set" : "Target set"}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
+              <span className={`badge ${acknowledged ? "badge-success" : "badge-neutral"}`}>{acknowledged ? "✓ Accepted" : "Accept"}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
+              <span className={`badge ${(locked && kadOpen && !workConfirmed) ? "badge-info" : workConfirmed ? "badge-success" : "badge-neutral"}`}>{workConfirmed ? "✓ Submitted" : "Submitting"}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
+              <span className={`badge ${workConfirmed ? "badge-success" : "badge-neutral"}`}>{workConfirmed ? "✓ Work confirmed" : "Work confirm"}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 10 }}>→</span>
+              <span className={`badge ${reported ? "badge-success" : "badge-neutral"}`}>{reported ? "✓ Reported" : "Reported"}</span>
+            </div>
+
+            {/* Target awaiting acceptance */}
+            {hasTarget && !acknowledged && isOwner && (
+              <div className="alert" style={{ marginBottom: 12, background: "var(--bg-accent)" }}>
+                You're being asked to deliver <strong>{alloc.target_value} {unit}</strong> of {alloc.output_metric} on <strong>{alloc.project_name}</strong>. Review, then accept below.
+              </div>
+            )}
+
+            {/* Progress tally — reported to date vs target */}
+            {locked && (
+              <div style={{ background: "var(--card)", borderRadius: "var(--radius)", padding: "12px 14px", marginBottom: 12 }}>
+                <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+                  <span className="t-caption">Reported to date</span>
+                  <span style={{ fontWeight: 600 }}>{alloc.actual_output_rollup} of {alloc.target_value} {unit}</span>
+                </div>
+                <AchievementBar pct={alloc.achievement_pct} />
+                {!workConfirmed && kadOpen && (
+                  <p className="t-caption" style={{ marginTop: 8, color: "var(--text-muted)" }}>
+                    Each entry adds to your total. Keep adding until your manager confirms the work — nothing is final until then.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Submission log: each entry's increment */}
+            {locked && subs && subs.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <p className="t-label" style={{ marginBottom: 6 }}>Your submissions</p>
+                <table><tbody>
+                  {subs.map(s => (
+                    <tr key={s.id}>
+                      <td className="t-caption">{s.date_of_activity || "—"}</td>
+                      <td>{s.output_narrative || <span className="t-caption">—</span>}</td>
+                      <td className="t-mono" style={{ textAlign: "right" }}>+{s.actual_output} {unit}</td>
+                      <td className="t-caption">{s.revised_at ? "revised" : s.query_note && !s.query_resolved_at ? "queried" : ""}</td>
+                    </tr>
+                  ))}
+                </tbody></table>
+              </div>
+            )}
+            {locked && subs && subs.length === 0 && (
+              <p className="t-caption" style={{ marginBottom: 12, color: "var(--text-muted)" }}>No submissions yet.</p>
+            )}
+
+            {/* Queried banner */}
+            {isOwner && queried && (
+              <div className="alert alert-warning" style={{ marginBottom: 12 }}>
+                A manager asked you to revise this work.{" "}
+                <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px" }} onClick={() => setReviewing(true)}>Read the note</button>
+                {" "}then submit a corrected entry.
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+              {hasTarget && !acknowledged && isOwner && (
+                <button className="btn btn-primary btn-sm" disabled={busy}
+                  onClick={() => act(() => allocApi.acknowledge(alloc.id), "Acknowledge")}>Accept target</button>
+              )}
+              {locked && isOwner && !workConfirmed && kadOpen && (
+                <button className="btn btn-primary btn-sm" onClick={() => onSubmit?.(alloc)}>+ Add submission</button>
+              )}
+              {locked && isOwner && !workConfirmed && !kadOpen && (
+                <span className="t-caption" style={{ color: "var(--text-muted)" }}>
+                  Your KAD hasn't been opened for this period yet — you'll be able to submit once it's opened.
+                </span>
+              )}
+              {locked && isOwner && workConfirmed && !reported && (
+                <span className="t-caption" style={{ color: "var(--success)" }}>✓ Work confirmed by your manager — this row is closed. Final: {alloc.actual_output_rollup} {unit}.</span>
+              )}
+              {reported && (
+                <span className="t-caption" style={{ color: "var(--success)" }}>✓ Reported to the organisation.</span>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+      {reviewing && (
+        <SubmissionReview alloc={alloc} canQuery={false}
+          onClose={() => setReviewing(false)}
+          onQueried={() => { setReviewing(false); onAction?.(); }} />
+      )}
+    </>
   );
 }
 
