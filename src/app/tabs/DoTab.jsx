@@ -23,6 +23,7 @@ export default function DoTab({ actor, periodId, periodOpen, onSubmit }) {
   const team = [];
   let teamCompleteCount = 0;   // HRBP: rows work-confirmed, not yet checked
   let teamReportCount = 0;     // Director: HRBP-checked, not yet reported
+  let waitingOnOthers = 0;     // manager-visible rows blocked on employee acceptance
 
   for (const a of allocs || []) {
     const isOwner = a.employee_id === actor?.id;
@@ -62,6 +63,10 @@ export default function DoTab({ actor, periodId, periodOpen, onSubmit }) {
         ctx: `${a.output_metric} — ${a.hrbp_flag_note}` });
     if (isHRBP && !isOwner && workConfirmed && !hrbpChecked) teamCompleteCount++;
     if (isDir && hrbpChecked && !reported) teamReportCount++;
+    // Manager-visible rows blocked on the employee accepting their target —
+    // not the manager's action, but worth acknowledging so an empty Do doesn't
+    // read as "the whole cycle is done".
+    if (managesRow && hasTarget && !acked) waitingOnOthers++;
   }
 
   // Roll-up items (one line each, not per row)
@@ -92,8 +97,12 @@ export default function DoTab({ actor, periodId, periodOpen, onSubmit }) {
           <svg className="inbox-empty-icon" viewBox="0 0 20 20" fill="currentColor" style={{ width: 28, height: 28 }}>
             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
           </svg>
-          <p style={{ fontWeight: 600, marginTop: 8 }}>You're all caught up</p>
-          <p className="t-caption">Nothing needs your attention this period.</p>
+          <p style={{ fontWeight: 600, marginTop: 8 }}>Nothing needs you right now</p>
+          <p className="t-caption">
+            {waitingOnOthers > 0
+              ? `${waitingOnOthers} row${waitingOnOthers === 1 ? "" : "s"} ${waitingOnOthers === 1 ? "is" : "are"} waiting on employees to accept their target. You can see the full board in Track.`
+              : "No actions are waiting on you this period."}
+          </p>
         </div>
       )}
 
