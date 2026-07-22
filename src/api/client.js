@@ -271,3 +271,24 @@ export const canvas = {
   addItem:     (body)        => req("POST",   `/canvas/items`, { body }),
   deleteItem:  (id)          => req("DELETE", `/canvas/items/${id}`),
 };
+
+// ── ideas ────────────────────────────────────────────────────────────────────
+// Private notebook. The server decides what you can see (your own + what's been
+// shared with you), so there's no "whose" parameter to pass anywhere here.
+export const ideas = {
+  list:       ()             => req("GET",    `/ideas`),
+  get:        (id)           => req("GET",    `/ideas/${id}`),
+  create:     (body)         => req("POST",   `/ideas`, { body }),
+  update:     (id, body)     => req("PATCH",  `/ideas/${id}`, { body }),
+  remove:     (id)           => req("DELETE", `/ideas/${id}`),
+  people:     ()             => req("GET",    `/ideas/people`),
+  share:      (id, personId) => req("POST",   `/ideas/${id}/shares`, { body: { person_id: personId } }),
+  unshare:    (id, personId) => req("DELETE", `/ideas/${id}/shares/${personId}`),
+};
+
+// ── leaderboard ──────────────────────────────────────────────────────────────
+// One call returns everything: KAD adoption, the public top 20, your own rank,
+// and achievement scoped to your own KAD.
+export const leaderboard = {
+  get: () => req("GET", `/leaderboard`),
+};
