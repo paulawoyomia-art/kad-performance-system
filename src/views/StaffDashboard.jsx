@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
 import { allocations as allocApi, periods as periodsApi, setup, flags as flagsApi } from "../api/client";
+import CanvasView from "./CanvasView";
 import { KadDashboard, ManageView, FlagManagement, ProjectWorkspace, SubmissionReview,
          NewAllocationModal, NewProjectModal, ResourceVisibility, OrgDashboard, ConsolidationView } from "./ManagerViews";
 
@@ -968,7 +969,7 @@ export default function StaffDashboard() {
   const canProjects = isDirector;             // projects + clients
   const canOrg      = isExec;                 // cross-KAD consolidation
 
-  const ALL_TABS = ["my","register","consolidation","kad","projects","org"];
+  const ALL_TABS = ["my","canvas","register","consolidation","kad","projects","org"];
   const pathTab = location.pathname.replace(/^\//, "") || "my";
   // accept legacy paths so old bookmarks still land somewhere sensible
   const legacy = { team: "register", manage: "register", flags: "kad", resources: "kad" };
@@ -998,6 +999,8 @@ export default function StaffDashboard() {
   const navItems = [
     { key: "my", label: "My work", mobileLabel: "My work", icon: Icons.allocations,
       active: tab === "my", onClick: () => setTab("my") },
+    { key: "canvas", label: "My day", mobileLabel: "My day", icon: Icons.periods,
+      active: tab === "canvas", onClick: () => setTab("canvas") },
     ...(canRegister ? [
       { key: "register", label: "Register", mobileLabel: "Register", icon: Icons.team,
         active: tab === "register", onClick: () => setTab("register") },
@@ -1020,7 +1023,7 @@ export default function StaffDashboard() {
     ] : []),
   ];
 
-  const titleMap = { my: "My work", register: "Register", consolidation: "KAD Consolidation",
+  const titleMap = { my: "My work", canvas: "My day", register: "Register", consolidation: "KAD Consolidation",
                      kad: "KAD dashboard", projects: "Projects",
                      org: "Organisation overview" };
 
@@ -1057,6 +1060,7 @@ export default function StaffDashboard() {
 
       {periods && periods.length > 0 && (
         <>
+          {tab === "canvas"   && <CanvasView actor={actor} onGoToWork={() => setTab("my")} />}
           {tab === "my"       && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "register" && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "consolidation" && (isHRBP || isDirector) && <ConsolidationView selectedPeriod={selectedPeriod} />}
