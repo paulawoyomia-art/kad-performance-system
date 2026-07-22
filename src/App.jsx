@@ -35,6 +35,8 @@ function AppRoutes() {
       {/* Staff routes — current tab set */}
       <Route path="/my"       element={<RequireAuth><StaffDashboard /></RequireAuth>} />
       <Route path="/canvas"   element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+      <Route path="/ideas"    element={<RequireAuth><StaffDashboard /></RequireAuth>} />
+      <Route path="/leaderboard" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
       <Route path="/register" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
       <Route path="/consolidation" element={<RequireAuth><StaffDashboard /></RequireAuth>} />
       <Route path="/kad"      element={<RequireAuth><StaffDashboard /></RequireAuth>} />
