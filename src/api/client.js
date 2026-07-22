@@ -255,3 +255,19 @@ export const projectMgmt = {
   updateMilestone:(msId, body)   => req("PATCH", `/milestones/${msId}`,         { body }),
   deleteMilestone:(msId)         => req("DELETE",`/milestones/${msId}`),
 };
+
+// ── daily work canvas ────────────────────────────────────────────────────────
+// Personal workspace. Every call is scoped server-side to the signed-in person,
+// so there are no ids to pass for "whose canvas" — there is only ever your own.
+export const canvas = {
+  day:         (date)        => req("GET",    `/canvas${date ? `?date=${date}` : ""}`),
+  days:        ()            => req("GET",    `/canvas/days`),
+  records:     (q, kind)     => req("GET",    `/canvas/records?q=${encodeURIComponent(q || "")}${kind ? `&kind=${kind}` : ""}`),
+  addTask:     (body)        => req("POST",   `/canvas/tasks`, { body }),
+  updateTask:  (id, body)    => req("PATCH",  `/canvas/tasks/${id}`, { body }),
+  deleteTask:  (id)          => req("DELETE", `/canvas/tasks/${id}`),
+  reorder:     (ids)         => req("POST",   `/canvas/tasks/reorder`, { body: { ids } }),
+  carryOver:   (date)        => req("POST",   `/canvas/carry-over`, { body: { date } }),
+  addItem:     (body)        => req("POST",   `/canvas/items`, { body }),
+  deleteItem:  (id)          => req("DELETE", `/canvas/items/${id}`),
+};
