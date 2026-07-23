@@ -295,3 +295,10 @@ export const leaderboard = {
   get:    () => req("GET", `/leaderboard`),
   streak: () => req("GET", `/streak`),
 };
+
+// ── my kad ───────────────────────────────────────────────────────────────────
+// People and clients, both scoped server-side to whatever the caller may see.
+export const kad = {
+  people:  () => req("GET", `/kad/people`),
+  clients: () => req("GET", `/kad/clients`),
+};
