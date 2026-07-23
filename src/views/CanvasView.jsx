@@ -353,6 +353,15 @@ function TargetProgress({ tasks }) {
 
 /* ── Task list with ordering ───────────────────────────────────────────────── */
 
+// Short labels on purpose: these sit on a phone next to the task title, so
+// "Not started" would eat the row. Tapping cycles To do → Doing → Done.
+const STATUS = {
+  open:     { label: "To do", cls: "badge-neutral" },
+  doing:    { label: "Doing", cls: "badge-info" },
+  done:     { label: "Done",  cls: "badge-success" },
+  deferred: { label: "Later", cls: "badge-neutral" },
+};
+
 /**
  * Order is the person's own arrangement, not a computed priority. Two ways to
  * change it because neither works everywhere: drag is natural with a mouse but
@@ -397,7 +406,7 @@ function TaskList({ tasks, onChange, onError }) {
           onDragOver={e => e.preventDefault()}
           onDrop={() => drop(t.id)}
           className="flex items-center gap-2"
-          style={{ padding: "10px 12px", gap: 8,
+          style={{ padding: "10px 12px", gap: 8, flexWrap: "wrap",
             borderBottom: i < tasks.length - 1 ? "1px solid var(--border)" : "none",
             background: dragId === t.id ? "var(--surface)" : "transparent" }}>
 
@@ -408,12 +417,17 @@ function TaskList({ tasks, onChange, onError }) {
               disabled={i === tasks.length - 1} onClick={() => move(t.id, 1)} aria-label="Move down">▼</button>
           </span>
 
-          <button className="btn btn-ghost btn-sm" style={{ padding: "0 4px" }}
-            onClick={() => cycle(t)} aria-label="Change status">
-            {t.status === "done" ? "☑" : t.status === "doing" ? "◐" : "☐"}
+          {/* The status carries a word, not just a glyph. A bare checkbox looks
+              like a toggle, so nobody discovers that it actually cycles — and
+              ☐ vs ◐ is a coin-flip on a phone in daylight. */}
+          <button className={`badge ${(STATUS[t.status] || STATUS.open).cls}`}
+            onClick={() => cycle(t)}
+            style={{ border: "none", cursor: "pointer", flexShrink: 0, minWidth: 68 }}
+            title="Tap to change status">
+            {(STATUS[t.status] || STATUS.open).label}
           </button>
 
-          <span style={{ flex: 1,
+          <span style={{ flex: 1, minWidth: 120,
             textDecoration: t.status === "done" ? "line-through" : "none",
             color: t.status === "done" ? "var(--text-secondary)" : "inherit" }}>
             {t.title}
@@ -425,7 +439,15 @@ function TaskList({ tasks, onChange, onError }) {
             )}
           </span>
 
-          <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px" }}
+          {/* Moving a task on is more useful than marking it "deferred" — it
+              says where it went, and it lands on tomorrow's list by itself. */}
+          {t.status !== "done" && (
+            <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px", flexShrink: 0 }}
+              onClick={() => run(() => canvasApi.updateTask(t.id, { planned_for: TOMORROW() }))}
+              title="Move to tomorrow">→ Tmw</button>
+          )}
+
+          <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px", flexShrink: 0 }}
             onClick={() => run(() => canvasApi.deleteTask(t.id))} aria-label="Delete">✕</button>
         </div>
       ))}
