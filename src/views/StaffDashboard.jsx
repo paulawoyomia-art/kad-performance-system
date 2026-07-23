@@ -80,8 +80,19 @@ function Modal({ title, onClose, children, footer }) {
 }
 
 // ── Submission form ───────────────────────────────────────────────────────────
-function SubmitModal({ alloc, onClose, onDone }) {
-  const [form, setForm] = useState({ date_of_activity: "", actual_output: "", input: "", process: "", output_narrative: "", blockers: "", proof_description: "" });
+/**
+ * `initial` lets the Daily Work Canvas hand over what it already knows — the
+ * date, and a narrative assembled from the tasks the person ticked off. It
+ * deliberately never carries the figure or the proof: three tasks is not three
+ * kilometres, and a proof that the system filled in for you isn't evidence.
+ * Those two stay the employee's own assertion, which is what the whole
+ * sign-off chain rests on.
+ */
+function SubmitModal({ alloc, onClose, onDone, initial = {} }) {
+  const [form, setForm] = useState({
+    date_of_activity: initial.date || "", actual_output: "",
+    input: "", process: "", output_narrative: initial.narrative || "",
+    blockers: "", proof_description: "" });
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr]       = useState("");
@@ -474,14 +485,25 @@ function SetTargetButton({ allocId, who, metric, unit, onDone }) {
 }
 
 // ── My Allocations view ───────────────────────────────────────────────────────
-function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAnyAction }) {
+function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAnyAction, prefill, onPrefillUsed }) {
   const { data: allocs, loading, reload } = useAsync(
     () => selectedPeriod ? allocApi.list(selectedPeriod, actor.id) : Promise.resolve([]),
     [selectedPeriod, actor.id]
   );
   const [submitting, setSubmitting] = useState(null);
+  const [seed, setSeed] = useState({});             // starting values handed over from My day
   const [expanded, setExpanded] = useState(null);   // allocation id whose detail is open
   const refresh = () => { reload(); onAnyAction?.(); };
+
+  // Arriving from the canvas with work to submit: find the allocation it named
+  // and open the form already part-filled. Cleared immediately so returning to
+  // this tab later doesn't reopen it.
+  useEffect(() => {
+    if (!prefill || !allocs) return;
+    const target = allocs.find(a => a.id === prefill.allocation_id);
+    if (target) { setSeed({ date: prefill.date, narrative: prefill.narrative }); setSubmitting(target); }
+    onPrefillUsed?.();
+  }, [prefill, allocs]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div>
@@ -510,7 +532,8 @@ function MyAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, onAn
           </div>
         </div>
       )}
-      {submitting && <SubmitModal alloc={submitting} onClose={() => setSubmitting(null)} onDone={refresh} />}
+      {submitting && <SubmitModal alloc={submitting} initial={seed}
+        onClose={() => { setSubmitting(null); setSeed({}); }} onDone={refresh} />}
     </div>
   );
 }
@@ -992,6 +1015,8 @@ export default function StaffDashboard() {
   }, [periods, selectedPeriod]);
 
   const roles = actor?.roles || [];
+  // Set when My day hands work over to My work, consumed once on arrival.
+  const [canvasPrefill, setCanvasPrefill] = useState(null);
 
   // Allocations for the inbox — pull both "mine" and (if a manager) my whole team's
   const { data: inboxAllocs, reload: reloadInbox } = useAsync(
@@ -1070,14 +1095,16 @@ export default function StaffDashboard() {
 
       {/* Personal tabs — nothing to do with performance periods, so they must
           not disappear when no period exists. */}
-      {tab === "canvas"      && <CanvasView actor={actor} onGoToWork={() => setTab("my")} />}
+      {tab === "canvas"      && <CanvasView actor={actor}
+        onGoToWork={(p) => { setCanvasPrefill(p || null); setTab("my"); }} />}
       {tab === "ideas"       && <IdeasView />}
       {tab === "leaderboard" && <LeaderboardView actor={actor} />}
 
       {/* Period-scoped tabs. */}
       {periods && periods.length > 0 && (
         <>
-          {tab === "my"       && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
+          {tab === "my"       && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox}
+            prefill={canvasPrefill} onPrefillUsed={() => setCanvasPrefill(null)} />}
           {tab === "register" && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "consolidation" && (isHRBP || isDirector) && <ConsolidationView selectedPeriod={selectedPeriod} />}
           {tab === "consolidation" && !(isHRBP || isDirector) && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}

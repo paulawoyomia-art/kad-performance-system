@@ -139,7 +139,22 @@ function TodayScreen({ actor, onGoToWork, onRecords, onTeam }) {
   const items = day?.items || [];
 
   // Finished work that's tied to a target — the one link back to the platform.
-  const submittable = tasks.filter(t => t.status === "done" && t.allocation_id);
+  // Grouped by target, because a submission is made against ONE allocation:
+  // handing over three targets at once would just be ambiguous.
+  const submittable = tasks.filter(t => t.status === "done" && t.allocation_id
+                                     && t.signoff_performed !== 1);
+  const handover = submittable.length ? (() => {
+    const allocId = submittable[0].allocation_id;
+    const same = submittable.filter(t => t.allocation_id === allocId);
+    return {
+      allocation_id: allocId,
+      metric: same[0].output_metric,
+      count: same.length,
+      date: TODAY(),
+      // The narrative starts as what they actually did today, in their words.
+      narrative: same.map(t => t.title).join("; "),
+    };
+  })() : null;
 
   if (loading) return <div className="loading-center"><span className="spinner" /></div>;
 
@@ -179,15 +194,28 @@ function TodayScreen({ actor, onGoToWork, onRecords, onTeam }) {
               <button className="btn btn-primary" type="submit" disabled={!newTask.trim()}>Add</button>
             </div>
             {targets.length > 0 && (
-              <select className="form-select mt-2" value={linkTo}
-                onChange={e => setLinkTo(e.target.value)}>
-                <option value="">Not tied to a target</option>
-                {targets.map(t => (
-                  <option key={t.allocation_id} value={t.allocation_id}>
-                    {t.output_metric}{t.project_name ? ` · ${t.project_name}` : ""}
-                  </option>
-                ))}
-              </select>
+              <>
+                <select className="form-select mt-2" value={linkTo}
+                  onChange={e => setLinkTo(e.target.value)}>
+                  <option value="">Not tied to a target</option>
+                  {targets.map(t => (
+                    <option key={t.allocation_id} value={t.allocation_id}>
+                      {t.output_metric}{t.project_name ? ` · ${t.project_name}` : ""}
+                    </option>
+                  ))}
+                </select>
+                {/* The choice deliberately sticks — someone logging five site
+                    visits against one target shouldn't re-pick five times. But
+                    sticky AND silent would quietly file unrelated work against
+                    the wrong target, so it says what it's about to do. */}
+                {linkTo && (
+                  <p className="t-caption mt-1" style={{ color: "var(--text-accent, inherit)" }}>
+                    Next task will also count toward{" "}
+                    <strong>{targets.find(t => String(t.allocation_id) === linkTo)?.output_metric}</strong>
+                    {" "}— change it above if that's not right.
+                  </p>
+                )}
+              </>
             )}
           </form>
 
@@ -207,7 +235,7 @@ function TodayScreen({ actor, onGoToWork, onRecords, onTeam }) {
               <TargetProgress tasks={tasks} />
               {tasks.length === 0
                 ? <p className="t-caption">Nothing planned yet. Add your first task above.</p>
-                : <TaskList tasks={tasks} onChange={load} onError={setErr} />}
+                : <TaskList tasks={tasks} targets={targets} onChange={load} onError={setErr} />}
             </section>
 
             <section>
@@ -267,15 +295,16 @@ function TodayScreen({ actor, onGoToWork, onRecords, onTeam }) {
             <p className="t-caption mt-1">These become your list when tomorrow arrives.</p>
           </section>
 
-          {submittable.length > 0 && (
+          {handover && (
             <div className="alert alert-info" style={{ marginTop: 20 }}>
               <div className="flex justify-between items-center" style={{ gap: 10, flexWrap: "wrap" }}>
                 <span>
-                  {submittable.length} completed {submittable.length === 1 ? "task maps" : "tasks map"} to
-                  {" "}{submittable.length === 1 ? "a target" : "targets"} you're measured on.
+                  {handover.count} finished {handover.count === 1 ? "task counts" : "tasks count"} toward{" "}
+                  <strong>{handover.metric}</strong>. Submit it and the date and description
+                  come with you — you add the figure and the proof.
                 </span>
-                <button className="btn btn-primary btn-sm" onClick={() => onGoToWork?.()}>
-                  Submit in My work
+                <button className="btn btn-primary btn-sm" onClick={() => onGoToWork?.(handover)}>
+                  Submit this work
                 </button>
               </div>
             </div>
@@ -367,8 +396,9 @@ const STATUS = {
  * change it because neither works everywhere: drag is natural with a mouse but
  * unreliable on touch, so the arrows are always there as the dependable path.
  */
-function TaskList({ tasks, onChange, onError }) {
+function TaskList({ tasks, targets = [], onChange, onError }) {
   const [dragId, setDragId] = useState(null);
+  const [editingLink, setEditingLink] = useState(null);   // task id being re-linked
 
   const run = async (fn) => {
     try { await fn(); onChange(); }
@@ -427,15 +457,49 @@ function TaskList({ tasks, onChange, onError }) {
             {(STATUS[t.status] || STATUS.open).label}
           </button>
 
-          <span style={{ flex: 1, minWidth: 120,
-            textDecoration: t.status === "done" ? "line-through" : "none",
-            color: t.status === "done" ? "var(--text-secondary)" : "inherit" }}>
-            {t.title}
-            {(t.project_name || t.output_metric) && (
-              <span className="t-caption" style={{ display: "block" }}>
-                {t.output_metric || t.project_name}
-                {t.output_metric && t.project_name ? ` · ${t.project_name}` : ""}
-              </span>
+          <span style={{ flex: 1, minWidth: 120 }}>
+            <span style={{
+              textDecoration: t.status === "done" ? "line-through" : "none",
+              color: t.status === "done" ? "var(--text-secondary)" : "inherit" }}>
+              {t.title}
+            </span>
+
+            {/* The link line IS the control. Work gets tied to a target after
+                the fact as often as before it — you finish the patrol, then
+                realise it counts. Making this editable removes the only other
+                route, which was delete and retype. */}
+            {targets.length > 0 && (
+              editingLink === t.id ? (
+                <select className="form-select mt-1" autoFocus
+                  value={t.allocation_id || ""}
+                  onBlur={() => setEditingLink(null)}
+                  onChange={e => {
+                    const pick = targets.find(x => String(x.allocation_id) === e.target.value);
+                    setEditingLink(null);
+                    run(() => canvasApi.updateTask(t.id, {
+                      allocation_id: pick ? pick.allocation_id : null,
+                      project_id:    pick ? pick.project_id    : null,
+                    }));
+                  }}>
+                  <option value="">Not tied to a target</option>
+                  {targets.map(x => (
+                    <option key={x.allocation_id} value={x.allocation_id}>
+                      {x.output_metric}{x.project_name ? ` · ${x.project_name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <button className="t-caption"
+                  onClick={() => setEditingLink(t.id)}
+                  style={{ display: "block", background: "none", border: "none", padding: 0,
+                    cursor: "pointer", textAlign: "left",
+                    color: t.output_metric ? "var(--text-muted)" : "var(--text-accent, inherit)",
+                    textDecoration: t.output_metric ? "none" : "underline" }}>
+                  {t.output_metric
+                    ? `${t.output_metric}${t.project_name ? ` · ${t.project_name}` : ""}`
+                    : "+ tie to a target"}
+                </button>
+              )
             )}
           </span>
 
