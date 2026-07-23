@@ -7,6 +7,7 @@ import { allocations as allocApi, periods as periodsApi, setup, flags as flagsAp
 import CanvasView from "./CanvasView";
 import IdeasView from "./IdeasView";
 import LeaderboardView from "./LeaderboardView";
+import KadView from "./KadView";
 import { KadDashboard, ManageView, FlagManagement, ProjectWorkspace, SubmissionReview,
          NewAllocationModal, NewProjectModal, ResourceVisibility, OrgDashboard, ConsolidationView } from "./ManagerViews";
 
@@ -991,16 +992,20 @@ export default function StaffDashboard() {
   //   Executive/CEO → Organisation
   const isLineManager = hasRole("Line Manager");
   const canRegister = isHRBP || isDirector || isLineManager;   // allocate/target/confirm
-  const canKadDash  = isDirector;             // detailed KAD review + sign-off
-  const canProjects = isDirector;             // projects + clients
+  // "My KAD" absorbs the old KAD dashboard and Projects tabs. Line managers see
+  // it as well — the API scopes them to their own reports and hides the lenses
+  // they have no business in, so nothing needs gating twice.
+  const canKadDash  = isDirector || isHRBP || isLineManager;
+  const canProjects = false;                  // folded into My KAD
   const canOrg      = isExec;                 // cross-KAD consolidation
 
-  const ALL_TABS = ["my","canvas","ideas","leaderboard","register","consolidation","kad","projects","org"];
+  const ALL_TABS = ["my","canvas","ideas","leaderboard","register","consolidation","kad","org"];
   // Tabs whose content is scoped to a performance period.
   const PERIOD_TABS = new Set(["my","register","consolidation","kad","org"]);
   const pathTab = location.pathname.replace(/^\//, "") || "my";
   // accept legacy paths so old bookmarks still land somewhere sensible
-  const legacy = { team: "register", manage: "register", flags: "kad", resources: "kad" };
+  const legacy = { team: "register", manage: "register", flags: "kad", resources: "kad",
+                   projects: "kad" };   // Projects is a lens inside My KAD now
   const tab = ALL_TABS.includes(pathTab) ? pathTab : (legacy[pathTab] || "my");
   const setTab = (t) => navigate(`/${t}`);
 
@@ -1050,12 +1055,8 @@ export default function StaffDashboard() {
         active: tab === "consolidation", onClick: () => setTab("consolidation") },
     ] : []),
     ...(canKadDash ? [
-      { key: "kad", label: "KAD dashboard", mobileLabel: "KAD", icon: Icons.home,
+      { key: "kad", label: "My KAD", mobileLabel: "My KAD", icon: Icons.home,
         active: tab === "kad", onClick: () => setTab("kad") },
-    ] : []),
-    ...(canProjects ? [
-      { key: "projects", label: "Projects", mobileLabel: "Projects", icon: Icons.allocations,
-        active: tab === "projects", onClick: () => setTab("projects") },
     ] : []),
     ...(canOrg ? [
       { key: "org", label: "Organisation", mobileLabel: "Org", icon: Icons.home,
@@ -1064,7 +1065,7 @@ export default function StaffDashboard() {
   ];
 
   const titleMap = { my: "My work", canvas: "My day", ideas: "Ideas", leaderboard: "Leaderboard", register: "Register", consolidation: "KAD Consolidation",
-                     kad: "KAD dashboard", projects: "Projects",
+                     kad: "My KAD", projects: "Projects",
                      org: "Organisation overview" };
 
   return (
@@ -1126,8 +1127,7 @@ export default function StaffDashboard() {
           {tab === "register" && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "consolidation" && (isHRBP || isDirector) && <ConsolidationView selectedPeriod={selectedPeriod} />}
           {tab === "consolidation" && !(isHRBP || isDirector) && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
-          {tab === "kad"      && <KadDashboard actor={actor} selectedPeriod={selectedPeriod} onAnyAction={reloadInbox} />}
-          {tab === "projects" && <ProjectWorkspace actor={actor} />}
+          {tab === "kad"      && <KadView actor={actor} selectedPeriod={selectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "org"      && <OrgDashboard selectedPeriod={selectedPeriod} />}
         </>
       )}
