@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
-import { allocations as allocApi, periods as periodsApi, setup, flags as flagsApi } from "../api/client";
+import { allocations as allocApi, periods as periodsApi, setup, flags as flagsApi,
+         leaderboard as lbApi } from "../api/client";
 import CanvasView from "./CanvasView";
 import IdeasView from "./IdeasView";
 import LeaderboardView from "./LeaderboardView";
@@ -1018,6 +1019,12 @@ export default function StaffDashboard() {
   // Set when My day hands work over to My work, consumed once on arrival.
   const [canvasPrefill, setCanvasPrefill] = useState(null);
 
+  // The streak is the point of the whole scheme, so it lives in the shell where
+  // it's visible from every screen — not buried in the leaderboard tab. Re-read
+  // on tab change, since almost any action can extend it.
+  const [streak, setStreak] = useState(null);
+  useEffect(() => { lbApi.streak().then(setStreak).catch(() => {}); }, [tab]);
+
   // Allocations for the inbox — pull both "mine" and (if a manager) my whole team's
   const { data: inboxAllocs, reload: reloadInbox } = useAsync(
     () => selectedPeriod ? allocApi.list(selectedPeriod) : Promise.resolve([]),
@@ -1061,7 +1068,18 @@ export default function StaffDashboard() {
                      org: "Organisation overview" };
 
   return (
-    <AppShell title={titleMap[tab] || "My work"} navItems={navItems}>
+    <AppShell title={titleMap[tab] || "My work"} navItems={navItems}
+      navExtras={streak && streak.current > 0 ? (
+        <button onClick={() => setTab("leaderboard")}
+          title={`${streak.current}-day streak · best ${streak.longest}`}
+          style={{ display: "flex", alignItems: "center", gap: 6, width: "100%",
+            background: "none", border: "none", cursor: "pointer", padding: "6px 0",
+            color: "inherit", font: "inherit" }}>
+          <span style={{ fontSize: 16 }}>🔥</span>
+          <span style={{ fontWeight: 600 }}>{streak.current}</span>
+          <span className="t-caption">day streak</span>
+        </button>
+      ) : null}>
       {/* Period selector — only on the tabs that are actually scoped to a
           period. My day, Ideas and Leaderboard aren't: showing it there was
           dead furniture, and worse, implied your canvas belonged to a cycle. */}

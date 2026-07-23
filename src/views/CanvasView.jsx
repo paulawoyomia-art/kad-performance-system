@@ -280,11 +280,25 @@ function TodayScreen({ actor, onGoToWork, onRecords, onTeam }) {
           <section style={{ marginTop: 20 }}>
             <p className="t-label mb-2">Tomorrow</p>
             {(tomorrow?.tasks || []).map(t => (
-              <div key={t.id} className="flex items-center gap-2" style={{ padding: "6px 0" }}>
+              <div key={t.id} className="flex items-center gap-2"
+                style={{ padding: "6px 0", gap: 8, flexWrap: "wrap" }}>
                 <span className="t-caption">□</span>
-                <span style={{ flex: 1 }}>{t.title}</span>
-                <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px" }}
-                  onClick={() => run(() => canvasApi.deleteTask(t.id))}>✕</button>
+                <span style={{ flex: 1, minWidth: 120 }}>
+                  {t.title}
+                  {t.output_metric && (
+                    <span className="t-caption" style={{ display: "block" }}>
+                      {t.output_metric}{t.project_name ? ` · ${t.project_name}` : ""}
+                    </span>
+                  )}
+                </span>
+                {/* Plans change in both directions — something you parked for
+                    tomorrow often turns out to be today's job. Pushing forward
+                    without a way back would just mean deleting and retyping. */}
+                <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px", flexShrink: 0 }}
+                  onClick={() => run(() => canvasApi.updateTask(t.id, { planned_for: TODAY() }))}
+                  title="Bring into today">← Today</button>
+                <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px", flexShrink: 0 }}
+                  onClick={() => run(() => canvasApi.deleteTask(t.id))} aria-label="Delete">✕</button>
               </div>
             ))}
             <form onSubmit={addTomorrow} className="flex gap-2 mt-2">

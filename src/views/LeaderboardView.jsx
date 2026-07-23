@@ -2,214 +2,147 @@ import { useState, useEffect } from "react";
 import { leaderboard as lbApi } from "../api/client";
 
 /**
- * Leaderboard — built to drive adoption.
+ * Leaderboard — one table, four rules, weekly reset.
  *
- * It ranks behaviour, not performance: signing up, accepting your target,
- * turning up. The one performance figure (achievement) is scoped to your own
- * KAD, because ranking it company-wide would really be ranking how generous
- * each target-setter was.
+ * The purpose is engagement, so the design constraint is comprehension. Every
+ * rule fits on one line and every row of the scoring table is something a
+ * person can go and do today. There are no weights to tune, no capped
+ * components and no percentages: a score you can't predict doesn't change
+ * anyone's behaviour.
  *
- * The public list of people stops at 20 and each person is told their own
- * position separately, so nobody is publicly last out of 117. Every number
- * here is a count — no note, idea or submission content is exposed.
+ * The streak carries most of the motivation. It sits at the top, on the
+ * viewer's own card, and is never ranked — a public streak ranking would
+ * compound into exactly the unwinnable board this replaced.
  */
-
-const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
-
 export default function LeaderboardView({ actor }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
-  const [board, setBoard] = useState("kads");   // kads | people | kad
 
   useEffect(() => { lbApi.get().then(setData).catch(e => setErr(e.message)); }, []);
 
   if (err) return <div className="alert alert-danger">{err}</div>;
   if (!data) return <div className="loading-center"><span className="spinner" /></div>;
 
-  const { kads = [], top = [], me, total_people, kad_achievement = [] } = data;
+  const { top = [], me, total_people, kads = [], points } = data;
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <h2 className="t-title" style={{ marginBottom: 4 }}>Leaderboard</h2>
-      <p className="t-caption mb-4">
-        How the platform is being taken up, across KADs and people.
+    <div style={{ maxWidth: 820, margin: "0 auto" }}>
+      {me && <YourCard me={me} total={total_people} />}
+
+      <Rules points={points} />
+
+      <p className="t-label mb-2">This week</p>
+      {top.length === 0
+        ? <p className="t-caption">Nobody has scored yet this week. First mover takes it.</p>
+        : (
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr>
+                  <th></th><th>Name</th><th>KAD</th><th>Points</th><th>Streak</th>
+                </tr></thead>
+                <tbody>
+                  {top.map(r => (
+                    <tr key={r.id} style={r.id === actor?.id ? { background: "var(--bg-accent)" } : undefined}>
+                      <td className="t-mono" style={{ width: 34, color: "var(--text-muted)" }}>
+                        {r.rank <= 3 ? ["🥇", "🥈", "🥉"][r.rank - 1] : r.rank}
+                      </td>
+                      <td>
+                        <strong>{r.full_name}</strong>
+                        {r.id === actor?.id && <span className="t-caption"> — you</span>}
+                      </td>
+                      <td className="t-caption">{r.kad_name || "—"}</td>
+                      <td className="t-mono"><strong>{r.points}</strong></td>
+                      <td className="t-mono">{r.streak > 0 ? `🔥 ${r.streak}` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      <p className="t-caption mt-2">
+        Resets every Monday. Only the top 20 is public — your own position is yours alone.
       </p>
 
-      {me && <YourStanding me={me} total={total_people} />}
-
-      <div className="flex gap-2 mb-3" style={{ flexWrap: "wrap" }}>
-        <button className={`btn btn-sm ${board === "kads" ? "btn-primary" : "btn-secondary"}`}
-          onClick={() => setBoard("kads")}>KADs</button>
-        <button className={`btn btn-sm ${board === "people" ? "btn-primary" : "btn-secondary"}`}
-          onClick={() => setBoard("people")}>Top 20</button>
-        {kad_achievement.length > 0 && (
-          <button className={`btn btn-sm ${board === "kad" ? "btn-primary" : "btn-secondary"}`}
-            onClick={() => setBoard("kad")}>My KAD</button>
-        )}
-      </div>
-
-      {board === "kads"   && <KadBoard kads={kads} />}
-      {board === "people" && <PeopleBoard top={top} meId={actor?.id} />}
-      {board === "kad"    && <KadAchievement rows={kad_achievement} meId={actor?.id} />}
+      {kads.length > 0 && (
+        <>
+          <p className="t-label mb-2" style={{ marginTop: 24 }}>KADs this cycle</p>
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr>
+                  <th></th><th>KAD</th><th>Staff</th><th>Points</th>
+                </tr></thead>
+                <tbody>
+                  {kads.map((k, i) => (
+                    <tr key={k.kad_id}>
+                      <td className="t-mono" style={{ width: 34, color: "var(--text-muted)" }}>{i + 1}</td>
+                      <td><strong>{k.kad_name}</strong></td>
+                      <td className="t-mono">{k.staff}</td>
+                      <td className="t-mono"><strong>{k.points}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <p className="t-caption mt-2">
+            KADs run on the performance cycle rather than the week, because a KAD's rhythm is the cycle.
+          </p>
+        </>
+      )}
     </div>
   );
 }
 
-/* ── your own standing (private to you) ────────────────────────────────────── */
-
-function YourStanding({ me, total }) {
+function YourCard({ me, total }) {
+  const alive = me.streak > 0;
   return (
     <div className="card mb-4" style={{ background: "var(--bg-accent)", border: "none" }}>
-      <div className="flex justify-between items-center" style={{ gap: 12, flexWrap: "wrap" }}>
+      <div className="flex justify-between items-center" style={{ gap: 16, flexWrap: "wrap" }}>
         <div>
-          <p className="t-label" style={{ margin: 0 }}>Where you stand</p>
-          <p className="t-caption" style={{ margin: 0 }}>Only you see this line.</p>
+          <div style={{ fontSize: 30, fontWeight: 700, lineHeight: 1.1 }}>
+            {alive ? `🔥 ${me.streak}` : "🔥 0"}
+          </div>
+          <p className="t-caption" style={{ margin: 0 }}>
+            {alive
+              ? `day streak · best ${me.streak_longest}`
+              : "Do one thing today to start a streak"}
+          </p>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>
             #{me.rank}<span className="t-caption" style={{ fontWeight: 400 }}> of {total}</span>
           </div>
-          <div className="t-caption">
-            {me.score} points · {me.days_active} active {me.days_active === 1 ? "day" : "days"}
+          <p className="t-caption" style={{ margin: 0 }}>{me.points} points this week</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Rules({ points = {} }) {
+  const rows = [
+    ["Submit work", points.submitted],
+    ["Accept a target", points.accepted],
+    ["Confirm someone's work", points.confirmed],
+    ["Show up and do anything", points.day],
+  ];
+  return (
+    <div className="card mb-4" style={{ padding: "12px 14px" }}>
+      <p className="t-label" style={{ marginBottom: 8 }}>How points work</p>
+      <div style={{ display: "grid", gap: 4 }}>
+        {rows.map(([label, n]) => (
+          <div key={label} className="flex justify-between">
+            <span>{label}</span>
+            <span className="t-mono">+{n}</span>
           </div>
-        </div>
+        ))}
       </div>
-    </div>
-  );
-}
-
-/* ── KAD adoption ──────────────────────────────────────────────────────────── */
-
-function KadBoard({ kads }) {
-  if (kads.length === 0) return <p className="t-caption">No KADs yet.</p>;
-  return (
-    <>
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <div className="table-wrap">
-          <table>
-            <thead><tr>
-              <th></th><th>KAD</th><th>Staff</th><th>Signed up</th>
-              <th>Targets accepted</th><th>Adoption</th>
-            </tr></thead>
-            <tbody>
-              {kads.map((k, i) => (
-                <tr key={k.kad_id}>
-                  <td className="t-mono" style={{ width: 32, color: "var(--text-muted)" }}>{i + 1}</td>
-                  <td><strong>{k.kad_name}</strong></td>
-                  <td className="t-mono">{k.staff}</td>
-                  <td className="t-mono">
-                    {pct(k.signup_pct)}
-                    <span className="t-caption"> ({k.signed_up}/{k.staff})</span>
-                  </td>
-                  <td className="t-mono">
-                    {pct(k.accept_pct)}
-                    {k.targeted > 0 && <span className="t-caption"> ({k.accepted}/{k.targeted})</span>}
-                  </td>
-                  <td><Bar pct={k.adoption_pct} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <p className="t-caption mt-2">
-        Percentages, not totals — a KAD of 52 shouldn't beat a KAD of 15 on size alone.
-        A dash means there's nothing assigned yet to accept.
+      <p className="t-caption" style={{ marginTop: 8 }}>
+        Streaks count weekdays. A weekend can't break one — and doesn't extend one either.
       </p>
-    </>
-  );
-}
-
-function Bar({ pct: p }) {
-  if (p == null) return <span className="t-caption">—</span>;
-  const cls = p >= 0.9 ? "good" : p >= 0.6 ? "" : p >= 0.3 ? "warning" : "danger";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="progress-bar" style={{ width: 70, flexShrink: 0 }}>
-        <div className={`progress-fill ${cls}`} style={{ width: `${Math.min(100, p * 100)}%` }} />
-      </div>
-      <span className="t-mono t-caption">{Math.round(p * 100)}%</span>
     </div>
-  );
-}
-
-/* ── company top 20 ────────────────────────────────────────────────────────── */
-
-function PeopleBoard({ top, meId }) {
-  if (top.length === 0) return <p className="t-caption">Nobody has used the platform yet.</p>;
-  return (
-    <>
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <div className="table-wrap">
-          <table>
-            <thead><tr>
-              <th></th><th>Name</th><th>KAD</th><th>Score</th><th>Days</th>
-              <th>Submitted</th><th>Accepted</th><th>Confirmed</th>
-            </tr></thead>
-            <tbody>
-              {top.map(r => (
-                <tr key={r.id} style={r.id === meId ? { background: "var(--bg-accent)" } : undefined}>
-                  <td className="t-mono" style={{ width: 32, color: "var(--text-muted)" }}>
-                    {r.rank <= 3 ? ["🥇", "🥈", "🥉"][r.rank - 1] : r.rank}
-                  </td>
-                  <td><strong>{r.full_name}</strong>{r.id === meId && <span className="t-caption"> — you</span>}</td>
-                  <td className="t-caption">{r.kad_name || "—"}</td>
-                  <td className="t-mono"><strong>{r.score}</strong></td>
-                  <td className="t-mono">{r.days_active}</td>
-                  <td className="t-mono">{r.submissions}</td>
-                  <td className="t-mono">{r.accepted}</td>
-                  <td className="t-mono">{r.confirmed}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div className="t-caption mt-2">
-        <p style={{ margin: "0 0 4px" }}>
-          <strong>Submitted work ×10 · target accepted ×5 · work confirmed for someone ×3 ·
-          each active day ×2.</strong>
-        </p>
-        <p style={{ margin: 0 }}>
-          Notes and ideas count towards active days but not per entry, so writing forty
-          in one afternoon earns the same as writing one. Logging in on its own earns
-          nothing. Counts only — no one's notes or ideas are visible here.
-        </p>
-      </div>
-    </>
-  );
-}
-
-/* ── achievement, own KAD only ─────────────────────────────────────────────── */
-
-function KadAchievement({ rows, meId }) {
-  return (
-    <>
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th></th><th>Name</th><th>Allocations</th><th>Achievement</th></tr></thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.employee_id}
-                  style={r.employee_id === meId ? { background: "var(--bg-accent)" } : undefined}>
-                  <td className="t-mono" style={{ width: 32, color: "var(--text-muted)" }}>{i + 1}</td>
-                  <td>
-                    <strong>{r.employee_name}</strong>
-                    {r.employee_id === meId && <span className="t-caption"> — you</span>}
-                  </td>
-                  <td className="t-mono">{r.allocations}</td>
-                  <td><Bar pct={r.avg_achievement} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <p className="t-caption mt-2">
-        Your KAD only — this isn't shown company-wide. Achievement depends partly on how
-        each target was set, so read it alongside the work, not as a pure ranking.
-      </p>
-    </>
   );
 }
