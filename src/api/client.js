@@ -268,6 +268,8 @@ export const canvas = {
   deleteTask:  (id)          => req("DELETE", `/canvas/tasks/${id}`),
   reorder:     (ids)         => req("POST",   `/canvas/tasks/reorder`, { body: { ids } }),
   carryOver:   (date)        => req("POST",   `/canvas/carry-over`, { body: { date } }),
+  linkable:    ()            => req("GET",    `/canvas/linkable`),
+  team:        (date)        => req("GET",    `/canvas/team${date ? `?date=${date}` : ""}`),
   addItem:     (body)        => req("POST",   `/canvas/items`, { body }),
   deleteItem:  (id)          => req("DELETE", `/canvas/items/${id}`),
 };
