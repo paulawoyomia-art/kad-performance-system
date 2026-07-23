@@ -70,8 +70,7 @@ function YourStanding({ me, total }) {
             #{me.rank}<span className="t-caption" style={{ fontWeight: 400 }}> of {total}</span>
           </div>
           <div className="t-caption">
-            {me.days_active} active {me.days_active === 1 ? "day" : "days"}
-            {me.submissions > 0 && ` · ${me.submissions} submissions`}
+            {me.score} points · {me.days_active} active {me.days_active === 1 ? "day" : "days"}
           </div>
         </div>
       </div>
@@ -144,8 +143,8 @@ function PeopleBoard({ top, meId }) {
         <div className="table-wrap">
           <table>
             <thead><tr>
-              <th></th><th>Name</th><th>KAD</th><th>Active days</th>
-              <th>Submissions</th><th>Notes</th><th>Ideas</th>
+              <th></th><th>Name</th><th>KAD</th><th>Score</th><th>Days</th>
+              <th>Submitted</th><th>Accepted</th><th>Confirmed</th>
             </tr></thead>
             <tbody>
               {top.map(r => (
@@ -155,20 +154,28 @@ function PeopleBoard({ top, meId }) {
                   </td>
                   <td><strong>{r.full_name}</strong>{r.id === meId && <span className="t-caption"> — you</span>}</td>
                   <td className="t-caption">{r.kad_name || "—"}</td>
+                  <td className="t-mono"><strong>{r.score}</strong></td>
                   <td className="t-mono">{r.days_active}</td>
                   <td className="t-mono">{r.submissions}</td>
-                  <td className="t-mono">{r.canvas_entries}</td>
-                  <td className="t-mono">{r.ideas}</td>
+                  <td className="t-mono">{r.accepted}</td>
+                  <td className="t-mono">{r.confirmed}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
-      <p className="t-caption mt-2">
-        Ranked on days you showed up, not how much you typed. Counts only — nobody's
-        notes or ideas are visible here.
-      </p>
+      <div className="t-caption mt-2">
+        <p style={{ margin: "0 0 4px" }}>
+          <strong>Submitted work ×10 · target accepted ×5 · work confirmed for someone ×3 ·
+          each active day ×2.</strong>
+        </p>
+        <p style={{ margin: 0 }}>
+          Notes and ideas count towards active days but not per entry, so writing forty
+          in one afternoon earns the same as writing one. Logging in on its own earns
+          nothing. Counts only — no one's notes or ideas are visible here.
+        </p>
+      </div>
     </>
   );
 }

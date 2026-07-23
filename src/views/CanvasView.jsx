@@ -13,24 +13,58 @@ import { canvas as canvasApi } from "../api/client";
  * else's canvas, so there is nothing to hide in the UI.
  */
 
-const ymd = (d) => d.toISOString().slice(0, 10);
+// LOCAL calendar date, not UTC. toISOString() would hand back yesterday for
+// anyone east of Greenwich in the small hours — in Lagos (UTC+1) that's every
+// day between midnight and 01:00. getFullYear/getMonth/getDate read the
+// browser's own timezone, so this is right for whoever is using it, wherever.
+const ymd = (d) => {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
 const TODAY = () => ymd(new Date());
 const TOMORROW = () => ymd(new Date(Date.now() + 86400000));
+
+/**
+ * The date this screen thinks it is, kept honest.
+ *
+ * The canvas is often left open — overnight, over a weekend. Without this the
+ * view keeps yesterday's date and quietly files new tasks to a day that has
+ * already gone. So: re-check on a timer, and again whenever the tab is brought
+ * back to the front, which is when a laptop waking from sleep notices.
+ */
+function useToday() {
+  const [day, setDay] = useState(TODAY);
+  useEffect(() => {
+    const check = () => setDay(prev => (TODAY() !== prev ? TODAY() : prev));
+    const timer = setInterval(check, 60000);
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+    };
+  }, []);
+  return day;
+}
 
 const prettyDate = (s) =>
   new Date(s + "T00:00:00").toLocaleDateString(undefined,
     { weekday: "long", day: "numeric", month: "long" });
 
 export default function CanvasView({ actor, onGoToWork }) {
-  const [screen, setScreen] = useState("today");   // today | records
-  return screen === "today"
-    ? <TodayScreen actor={actor} onGoToWork={onGoToWork} onRecords={() => setScreen("records")} />
-    : <RecordsScreen onBack={() => setScreen("today")} />;
+  const [screen, setScreen] = useState("today");   // today | records | team
+  if (screen === "records") return <RecordsScreen onBack={() => setScreen("today")} />;
+  if (screen === "team")    return <TeamScreen onBack={() => setScreen("today")} />;
+  return <TodayScreen actor={actor} onGoToWork={onGoToWork}
+                      onRecords={() => setScreen("records")}
+                      onTeam={() => setScreen("team")} />;
 }
 
 /* ── Today ─────────────────────────────────────────────────────────────────── */
 
-function TodayScreen({ actor, onGoToWork, onRecords }) {
+function TodayScreen({ actor, onGoToWork, onRecords, onTeam }) {
+  const todayStr = useToday();          // rolls over at midnight on its own
   const [day, setDay] = useState(null);
   const [tomorrow, setTomorrow] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +73,8 @@ function TodayScreen({ actor, onGoToWork, onRecords }) {
   const [newTomorrow, setNewTomorrow] = useState("");
   const [capture, setCapture] = useState(null);     // 'win' | 'blocker' | 'learning'
   const [captureText, setCaptureText] = useState("");
+  const [targets, setTargets] = useState([]);       // live allocations to link against
+  const [linkTo, setLinkTo] = useState("");         // allocation_id chosen on the add form
 
   const load = useCallback(async () => {
     setErr("");
@@ -52,7 +88,19 @@ function TodayScreen({ actor, onGoToWork, onRecords }) {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Reloads on mount AND whenever the calendar day changes underneath us.
+  useEffect(() => { load(); }, [load, todayStr]);
+
+  // The targets this person is measured on, so a task can be tied to one.
+  useEffect(() => { canvasApi.linkable().then(setTargets).catch(() => setTargets([])); }, []);
+
+  // Managers get a team view. We ask the API rather than reading roles here —
+  // it already knows the scope rules, and this way the button can't appear for
+  // someone the server would refuse anyway.
+  const [managesTeam, setManagesTeam] = useState(false);
+  useEffect(() => {
+    canvasApi.team().then(t => setManagesTeam((t?.people || []).length > 0)).catch(() => {});
+  }, []);
 
   const run = async (fn) => {
     setErr("");
@@ -63,8 +111,13 @@ function TodayScreen({ actor, onGoToWork, onRecords }) {
   async function addTask(e) {
     e?.preventDefault();
     const title = newTask.trim(); if (!title) return;
+    const t = targets.find(x => String(x.allocation_id) === linkTo);
     setNewTask("");
-    await run(() => canvasApi.addTask({ title, planned_for: TODAY() }));
+    await run(() => canvasApi.addTask({
+      title, planned_for: TODAY(),
+      allocation_id: t ? t.allocation_id : null,
+      project_id:    t ? t.project_id    : null,
+    }));
   }
 
   async function addTomorrow(e) {
@@ -99,7 +152,12 @@ function TodayScreen({ actor, onGoToWork, onRecords }) {
           </h2>
           <p className="t-caption" style={{ margin: 0 }}>{prettyDate(TODAY())}</p>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={onRecords}>Your records</button>
+        <div className="flex gap-2">
+          {managesTeam && (
+            <button className="btn btn-secondary btn-sm" onClick={onTeam}>Your team</button>
+          )}
+          <button className="btn btn-secondary btn-sm" onClick={onRecords}>Your records</button>
+        </div>
       </div>
 
       {err && <div className="alert alert-danger mb-3">{err}</div>}
@@ -113,10 +171,24 @@ function TodayScreen({ actor, onGoToWork, onRecords }) {
 
       {!day?.no_canvas && (
         <>
-          <form onSubmit={addTask} className="flex gap-2 mb-3">
-            <input className="form-input" value={newTask} placeholder="Add a task for today"
-              onChange={e => setNewTask(e.target.value)} />
-            <button className="btn btn-primary" type="submit" disabled={!newTask.trim()}>Add</button>
+          <form onSubmit={addTask} className="mb-3">
+            <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+              <input className="form-input" value={newTask} placeholder="Add a task for today"
+                style={{ flex: "1 1 200px" }}
+                onChange={e => setNewTask(e.target.value)} />
+              <button className="btn btn-primary" type="submit" disabled={!newTask.trim()}>Add</button>
+            </div>
+            {targets.length > 0 && (
+              <select className="form-select mt-2" value={linkTo}
+                onChange={e => setLinkTo(e.target.value)}>
+                <option value="">Not tied to a target</option>
+                {targets.map(t => (
+                  <option key={t.allocation_id} value={t.allocation_id}>
+                    {t.output_metric}{t.project_name ? ` · ${t.project_name}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
           </form>
 
           {day?.carry_over > 0 && (
@@ -132,6 +204,7 @@ function TodayScreen({ actor, onGoToWork, onRecords }) {
 
             <section>
               <p className="t-label mb-2">Today · {tasks.filter(t => t.status === "done").length} of {tasks.length} done</p>
+              <TargetProgress tasks={tasks} />
               {tasks.length === 0
                 ? <p className="t-caption">Nothing planned yet. Add your first task above.</p>
                 : <TaskList tasks={tasks} onChange={load} onError={setErr} />}
@@ -209,6 +282,71 @@ function TodayScreen({ actor, onGoToWork, onRecords }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/* ── Progress against the targets you're actually measured on ──────────────── */
+
+function AchievementBar({ pct }) {
+  if (pct == null) return <span className="t-caption">Nothing reported yet</span>;
+  const cls = pct >= 1 ? "good" : pct >= 0.5 ? "" : pct >= 0.2 ? "warning" : "danger";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="progress-bar" style={{ width: 90, flexShrink: 0 }}>
+        <div className={`progress-fill ${cls}`} style={{ width: `${Math.min(100, pct * 100)}%` }} />
+      </div>
+      <span className="t-mono t-caption">{Math.round(pct * 100)}%</span>
+    </div>
+  );
+}
+
+/**
+ * Ticking tasks off is satisfying but it isn't the measure. What counts is the
+ * target: 40 km of patrol, 100% uptime. So for every task tied to a target,
+ * this shows both — how much of today's work is done, and where the reported
+ * figure stands against the number being asked for.
+ */
+function TargetProgress({ tasks }) {
+  const linked = tasks.filter(t => t.allocation_id);
+  if (linked.length === 0) return null;
+
+  const byTarget = new Map();
+  for (const t of linked) {
+    const g = byTarget.get(t.allocation_id) || {
+      metric: t.output_metric, project: t.project_name, unit: t.unit || "",
+      target: t.target_value, reported: t.actual_output_rollup ?? 0,
+      pct: t.achievement_pct, confirmed: t.signoff_performed === 1,
+      total: 0, done: 0,
+    };
+    g.total += 1;
+    if (t.status === "done") g.done += 1;
+    byTarget.set(t.allocation_id, g);
+  }
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      {[...byTarget.entries()].map(([id, g]) => (
+        <div key={id} style={{ background: "var(--surface)", borderRadius: "var(--radius)",
+          padding: "10px 12px", marginBottom: 8 }}>
+          <div className="flex justify-between items-center" style={{ gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 600 }}>{g.metric}</span>
+            <span className="t-caption">{g.done} of {g.total} today</span>
+          </div>
+          {g.project && <p className="t-caption" style={{ margin: "2px 0 6px" }}>{g.project}</p>}
+          <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
+            <AchievementBar pct={g.pct} />
+            <span className="t-caption">
+              {g.reported} of {g.target} {g.unit} reported
+            </span>
+          </div>
+          {g.confirmed && (
+            <p className="t-caption" style={{ margin: "6px 0 0", color: "var(--success)" }}>
+              ✓ Confirmed by your manager — this target is closed.
+            </p>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -412,6 +550,88 @@ function DayDetail({ date }) {
       ))}
       {(d.tasks || []).length === 0 && (d.items || []).length === 0 &&
         <p className="t-caption">Nothing recorded on this day.</p>}
+    </div>
+  );
+}
+
+/* ── Team view (managers) ──────────────────────────────────────────────────── */
+
+/**
+ * What a manager sees of their people's day: who's moving, and who is stuck.
+ *
+ * Counts and blockers only — no task titles, no wins, no learnings, and nothing
+ * at all from Ideas. The point is to surface "I can't get onto the site" the
+ * same day it happens, not to read over anyone's shoulder.
+ */
+function TeamScreen({ onBack }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => { canvasApi.team(TODAY()).then(setData).catch(e => setErr(e.message)); }, []);
+
+  if (err) return (
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <button className="btn btn-ghost btn-sm mb-3" onClick={onBack}>← Back</button>
+      <div className="alert alert-danger">{err}</div>
+    </div>
+  );
+  if (!data) return <div className="loading-center"><span className="spinner" /></div>;
+
+  const { people = [], blockers = [], scope } = data;
+
+  return (
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <div className="flex items-center gap-2 mb-1">
+        <button className="btn btn-ghost btn-sm" onClick={onBack}>← Back</button>
+        <h2 className="t-title" style={{ margin: 0 }}>Your team today</h2>
+      </div>
+      <p className="t-caption mb-4">
+        {scope === "kad" ? "Everyone in your KAD" : "The people who report to you"} ·
+        {" "}{prettyDate(TODAY())}
+      </p>
+
+      {blockers.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <p className="t-label mb-2">Blockers raised today</p>
+          {blockers.map(b => (
+            <div key={b.id} className="alert alert-warning" style={{ marginBottom: 6 }}>
+              <strong>{b.full_name}:</strong> {b.body}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {people.length === 0
+        ? <p className="t-caption">Nobody in scope yet.</p>
+        : (
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <div className="table-wrap">
+              <table>
+                <thead><tr>
+                  <th>Name</th><th>Planned</th><th>Done</th><th>Blockers</th><th>Wins</th>
+                </tr></thead>
+                <tbody>
+                  {people.map(p => (
+                    <tr key={p.id}>
+                      <td>
+                        <strong>{p.full_name}</strong>
+                        {p.designation && <span className="t-caption" style={{ display: "block" }}>{p.designation}</span>}
+                      </td>
+                      <td className="t-mono">{p.planned}</td>
+                      <td className="t-mono">{p.done}</td>
+                      <td className="t-mono">{p.blockers > 0 ? p.blockers : "—"}</td>
+                      <td className="t-mono">{p.wins > 0 ? p.wins : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+      <p className="t-caption mt-2">
+        Counts and blockers only. Task details, wins, learnings and Ideas stay with the person.
+      </p>
     </div>
   );
 }
