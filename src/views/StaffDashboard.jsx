@@ -972,6 +972,8 @@ export default function StaffDashboard() {
   const canOrg      = isExec;                 // cross-KAD consolidation
 
   const ALL_TABS = ["my","canvas","ideas","leaderboard","register","consolidation","kad","projects","org"];
+  // Tabs whose content is scoped to a performance period.
+  const PERIOD_TABS = new Set(["my","register","consolidation","kad","org"]);
   const pathTab = location.pathname.replace(/^\//, "") || "my";
   // accept legacy paths so old bookmarks still land somewhere sensible
   const legacy = { team: "register", manage: "register", flags: "kad", resources: "kad" };
@@ -1035,8 +1037,10 @@ export default function StaffDashboard() {
 
   return (
     <AppShell title={titleMap[tab] || "My work"} navItems={navItems}>
-      {/* Period selector — always visible, plain language */}
-      {periods && periods.length > 0 && (
+      {/* Period selector — only on the tabs that are actually scoped to a
+          period. My day, Ideas and Leaderboard aren't: showing it there was
+          dead furniture, and worse, implied your canvas belonged to a cycle. */}
+      {PERIOD_TABS.has(tab) && periods && periods.length > 0 && (
         <div className="flex items-center gap-2 mb-4" style={{ flexWrap: "wrap" }}>
           <span className="t-caption">Period:</span>
           <select className="form-select" style={{ width: "auto", minWidth: 160 }}
@@ -1055,8 +1059,8 @@ export default function StaffDashboard() {
           onGoTo={(t) => setTab(t)} />
       )}
 
-      {/* No period at all — guided empty state, with a manual re-check */}
-      {(!periods || periods.length === 0) && (
+      {/* No period at all — only worth saying on the tabs that need one. */}
+      {PERIOD_TABS.has(tab) && (!periods || periods.length === 0) && (
         <div className="empty">
           <p className="empty-title">No active period yet</p>
           <p className="empty-body">Your administrator will open a performance period once targets are set. If one was just created, check again.</p>
@@ -1064,11 +1068,15 @@ export default function StaffDashboard() {
         </div>
       )}
 
+      {/* Personal tabs — nothing to do with performance periods, so they must
+          not disappear when no period exists. */}
+      {tab === "canvas"      && <CanvasView actor={actor} onGoToWork={() => setTab("my")} />}
+      {tab === "ideas"       && <IdeasView />}
+      {tab === "leaderboard" && <LeaderboardView actor={actor} />}
+
+      {/* Period-scoped tabs. */}
       {periods && periods.length > 0 && (
         <>
-          {tab === "canvas"   && <CanvasView actor={actor} onGoToWork={() => setTab("my")} />}
-          {tab === "ideas"    && <IdeasView />}
-          {tab === "leaderboard" && <LeaderboardView actor={actor} />}
           {tab === "my"       && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "register" && <TeamAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "consolidation" && (isHRBP || isDirector) && <ConsolidationView selectedPeriod={selectedPeriod} />}
