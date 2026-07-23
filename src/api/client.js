@@ -292,5 +292,6 @@ export const ideas = {
 // One call returns everything: KAD adoption, the public top 20, your own rank,
 // and achievement scoped to your own KAD.
 export const leaderboard = {
-  get: () => req("GET", `/leaderboard`),
+  get:    () => req("GET", `/leaderboard`),
+  streak: () => req("GET", `/streak`),
 };
