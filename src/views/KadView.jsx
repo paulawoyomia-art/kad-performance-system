@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { kad as kadApi } from "../api/client";
+import { kad as kadApi, canvas as canvasApi, org as orgApi } from "../api/client";
 import { KadDashboard, ProjectWorkspace, ResourceVisibility, NewProjectModal,
          FlagManagement } from "./ManagerViews";
 
@@ -80,8 +80,11 @@ function PeopleLens() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [filter, setFilter] = useState("all");
+  const [team, setTeam] = useState(null);   // today's blockers, from the canvas
+  const [drill, setDrill] = useState(null); // a direct report's KAD, opened on demand
 
   useEffect(() => { kadApi.people().then(setData).catch(e => setErr(e.message)); }, []);
+  useEffect(() => { canvasApi.team().then(setTeam).catch(() => setTeam(null)); }, []);
 
   if (err) return <div className="alert alert-danger">{err}</div>;
   if (!data) return <div className="loading-center"><span className="spinner" /></div>;
@@ -101,6 +104,18 @@ function PeopleLens() {
 
   return (
     <div>
+      {/* Today's blockers first — the one thing here you can act on the same day. */}
+      {team && (team.blockers || []).length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <p className="t-label mb-2">Blocked today</p>
+          {team.blockers.map(b => (
+            <div key={b.id} className="alert alert-warning" style={{ marginBottom: 6 }}>
+              <strong>{b.full_name}:</strong> {b.body}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ display: "grid", gap: 10, marginBottom: 14,
         gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
         <Stat label="Not signed in" value={notSignedIn.length} tone="danger" />
@@ -123,7 +138,7 @@ function PeopleLens() {
         <div className="table-wrap">
           <table>
             <thead><tr>
-              <th>Name</th><th>Role</th><th>Status</th><th>Allocations</th>
+              <th>Name</th><th>Role</th><th>Status</th><th>Allocations</th><th></th>
             </tr></thead>
             <tbody>
               {shown.map(p => {
@@ -145,6 +160,16 @@ function PeopleLens() {
                           : <span className="badge badge-success">Active</span>}
                     </td>
                     <td className="t-mono">{p.allocations}</td>
+                    <td>
+                      {/* Their KAD isn't shown inline — four directors' worth of
+                          activity would bury the list. One click, on demand. */}
+                      {p.is_direct_report === 1 && p.kad_id && (
+                        <button className="btn btn-ghost btn-sm"
+                          onClick={() => setDrill({ id: p.kad_id, name: p.kad_name, who: p.full_name })}>
+                          View {p.kad_name}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -153,9 +178,12 @@ function PeopleLens() {
         </div>
       </div>
 
+      {drill && <KadDrill kad={drill} onClose={() => setDrill(null)} />}
+
       <p className="t-caption mt-2">
         Everyone in your scope, whether or not they've ever opened the app — the register
-        can't show you these people, because it only lists allocations.
+        can't show you these people, because it only lists allocations. Blockers raised
+        today appear above; the fuller day-by-day view is in My day → Your team.
       </p>
     </div>
   );
@@ -244,6 +272,95 @@ function ClientsLens() {
         currencies can be compared directly. Clients themselves are set up by an
         administrator — ask them to add or change one.
       </p>
+    </div>
+  );
+}
+
+/**
+ * One direct report's KAD, opened on demand.
+ *
+ * An executive has four directors; showing every one of their KADs inline would
+ * bury the very list this lens exists for. So it's a click, and it opens the two
+ * things worth seeing: who is in that KAD, and what they're working on.
+ */
+function KadDrill({ kad, onClose }) {
+  const [people, setPeople] = useState(null);
+  const [activity, setActivity] = useState(null);
+  const [view, setView] = useState("activity");
+
+  useEffect(() => {
+    kadApi.people(kad.id).then(r => setPeople(r.people || [])).catch(() => setPeople([]));
+    orgApi.activity(null, kad.id).then(r => setActivity(r.rows || [])).catch(() => setActivity([]));
+  }, [kad.id]);
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 760 }}>
+        <div className="modal-header">
+          <div>
+            <h2 className="modal-title" style={{ marginBottom: 2 }}>{kad.name}</h2>
+            <p className="t-caption" style={{ margin: 0 }}>Run by {kad.who}</p>
+          </div>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="flex gap-2 mb-3" style={{ flexWrap: "wrap" }}>
+            <button className={`btn btn-sm ${view === "activity" ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setView("activity")}>Activity</button>
+            <button className={`btn btn-sm ${view === "people" ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setView("people")}>People</button>
+          </div>
+
+          {view === "activity" && (
+            !activity ? <div className="loading-center"><span className="spinner" /></div>
+            : activity.length === 0 ? <p className="t-caption">No work allocated in this KAD yet.</p>
+            : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Person</th><th>Work</th><th>Target</th><th>Actual</th><th>Stage</th></tr></thead>
+                  <tbody>
+                    {activity.map(r => (
+                      <tr key={r.id}>
+                        <td>{r.employee_name}</td>
+                        <td>{r.output_metric}
+                          {r.project_name && <span className="t-caption" style={{ display: "block" }}>{r.project_name}</span>}</td>
+                        <td className="t-mono">{r.target_value ?? "—"}</td>
+                        <td className="t-mono">{r.target_locked ? (r.actual ?? 0) : "—"}</td>
+                        <td><span className="badge badge-neutral">{r.work_status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+
+          {view === "people" && (
+            !people ? <div className="loading-center"><span className="spinner" /></div>
+            : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Allocations</th></tr></thead>
+                  <tbody>
+                    {people.map(p => (
+                      <tr key={p.id}>
+                        <td><strong>{p.full_name}</strong></td>
+                        <td className="t-caption">{p.designation || "—"}</td>
+                        <td>
+                          {!p.has_logged_in
+                            ? <span className="badge badge-danger">Not signed in</span>
+                            : p.targets_waiting > 0
+                              ? <span className="badge badge-warning">Target waiting</span>
+                              : <span className="badge badge-success">Active</span>}
+                        </td>
+                        <td className="t-mono">{p.allocations}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+        </div>
+      </div>
     </div>
   );
 }

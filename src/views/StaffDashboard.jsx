@@ -1042,7 +1042,9 @@ export default function StaffDashboard() {
   // "My KAD" absorbs the old KAD dashboard and Projects tabs. Line managers see
   // it as well — the API scopes them to their own reports and hides the lenses
   // they have no business in, so nothing needs gating twice.
-  const canKadDash  = isDirector || isHRBP || isLineManager;
+  // Executives hold a KAD too (Shared Services) and are its director — they get
+  // the same oversight there. The API scopes the lens to their own KAD.
+  const canKadDash  = isDirector || isHRBP || isLineManager || isExec;
   const canProjects = false;                  // folded into My KAD
   const canOrg      = isExec;                 // cross-KAD consolidation
 

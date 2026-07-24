@@ -17,6 +17,7 @@ import { leaderboard as lbApi } from "../api/client";
 export default function LeaderboardView({ actor }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
+  const [board, setBoard] = useState("people");
 
   useEffect(() => { lbApi.get().then(setData).catch(e => setErr(e.message)); }, []);
 
@@ -29,8 +30,20 @@ export default function LeaderboardView({ actor }) {
     <div style={{ maxWidth: 820, margin: "0 auto" }}>
       {me && <YourCard me={me} total={total_people} />}
 
+      {/* A toggle rather than one board stacked under the other: they answer
+          different questions and run on different clocks — your week, and your
+          KAD's cycle — so neither should be buried below the fold. */}
+      <div className="flex gap-2 mb-3" style={{ flexWrap: "wrap" }}>
+        <button className={`btn btn-sm ${board === "people" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setBoard("people")}>People · this week</button>
+        <button className={`btn btn-sm ${board === "kads" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setBoard("kads")}>KADs · this cycle</button>
+      </div>
+
       <Rules points={points} />
 
+      {board === "kads" ? <KadBoard kads={kads} /> : (
+      <>
       <p className="t-label mb-2">This week</p>
       {top.length === 0
         ? <p className="t-caption">Nobody has scored yet this week. First mover takes it.</p>
@@ -64,34 +77,9 @@ export default function LeaderboardView({ actor }) {
       <p className="t-caption mt-2">
         Resets every Monday. Only the top 20 is public — your own position is yours alone.
       </p>
-
-      {kads.length > 0 && (
-        <>
-          <p className="t-label mb-2" style={{ marginTop: 24 }}>KADs this cycle</p>
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div className="table-wrap">
-              <table>
-                <thead><tr>
-                  <th></th><th>KAD</th><th>Staff</th><th>Points</th>
-                </tr></thead>
-                <tbody>
-                  {kads.map((k, i) => (
-                    <tr key={k.kad_id}>
-                      <td className="t-mono" style={{ width: 34, color: "var(--text-muted)" }}>{i + 1}</td>
-                      <td><strong>{k.kad_name}</strong></td>
-                      <td className="t-mono">{k.staff}</td>
-                      <td className="t-mono"><strong>{k.points}</strong></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <p className="t-caption mt-2">
-            KADs run on the performance cycle rather than the week, because a KAD's rhythm is the cycle.
-          </p>
-        </>
+      </>
       )}
+
     </div>
   );
 }
@@ -166,6 +154,68 @@ function Rules({ points = {} }) {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * KADs rank on ADOPTION, not points. Points alone rank by headcount — a KAD of
+ * 52 out-earns a KAD of 15 whatever either actually does. The percentages are
+ * what make them comparable; the points sit alongside as the volume behind them.
+ */
+function KadBoard({ kads }) {
+  if (kads.length === 0) return <p className="t-caption">No KADs yet.</p>;
+  const pct = (v) => v == null ? "—" : `${Math.round(v * 100)}%`;
+  return (
+    <>
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <div className="table-wrap">
+          <table>
+            <thead><tr>
+              <th></th><th>KAD</th><th>Staff</th><th>Signed up</th>
+              <th>Accepted</th><th>Adoption</th><th>Points</th>
+            </tr></thead>
+            <tbody>
+              {kads.map((k, i) => (
+                <tr key={k.kad_id}>
+                  <td className="t-mono" style={{ width: 34, color: "var(--text-muted)" }}>
+                    {i < 3 ? ["🥇", "🥈", "🥉"][i] : i + 1}
+                  </td>
+                  <td><strong>{k.kad_name}</strong></td>
+                  <td className="t-mono">{k.staff}</td>
+                  <td className="t-mono">
+                    {pct(k.signup_pct)}
+                    <span className="t-caption"> ({k.signed_up}/{k.staff})</span>
+                  </td>
+                  <td className="t-mono">
+                    {pct(k.accept_pct)}
+                    {k.targeted > 0 && <span className="t-caption"> ({k.accepted}/{k.targeted})</span>}
+                  </td>
+                  <td><Bar pct={k.adoption_pct} /></td>
+                  <td className="t-mono"><strong>{k.points}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p className="t-caption mt-2">
+        Ranked on adoption so size doesn't decide it. A dash under Accepted means there's
+        nothing assigned yet to accept. Runs on the performance cycle, not the week.
+      </p>
+    </>
+  );
+}
+
+function Bar({ pct: p }) {
+  if (p == null) return <span className="t-caption">—</span>;
+  const cls = p >= 0.9 ? "good" : p >= 0.6 ? "" : p >= 0.3 ? "warning" : "danger";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="progress-bar" style={{ width: 70, flexShrink: 0 }}>
+        <div className={`progress-fill ${cls}`} style={{ width: `${Math.min(100, p * 100)}%` }} />
+      </div>
+      <span className="t-mono t-caption">{Math.round(p * 100)}%</span>
     </div>
   );
 }

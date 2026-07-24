@@ -212,6 +212,10 @@ function PeopleTab() {
   const { data: kads } = useAsync(() => setup.listKads());
   const [kadId, setKadId]       = useState("");
   const { data: people, loading, reload } = useAsync(() => setup.listPeople(kadId || null), [kadId]);
+  // Unfiltered, for the "reports to" picker: a KAD director reports to the CEO
+  // in Shared Services, so filtering the list by the KAD dropdown would hide
+  // exactly the person you need to choose.
+  const { data: everyone } = useAsync(() => setup.listPeople(), []);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing]   = useState(null);
   const [form, setForm]         = useState({ employee_id:"",full_name:"",designation:"",staff_type:"Management",kad_id:"",email:"",status:"Active",is_hr_manager:false });
@@ -233,6 +237,7 @@ function PeopleTab() {
       { key: "staff_type", label: "Type" }, { key: "kad_id", label: "KAD ID" },
       { key: "kad_name", label: "KAD" }, { key: "email", label: "Email" },
       { key: "status", label: "Status" }, { key: "is_hr_manager", label: "HR Manager" },
+      { key: "reports_to_name", label: "Reports to" },
       { key: "must_change_password", label: "Password Changed" },
     ]);
   }
@@ -259,6 +264,7 @@ function PeopleTab() {
         kad_id:       Number(editing.kad_id),
         status:       editing.status,
         is_hr_manager: editing.is_hr_manager ? 1 : 0,
+        reports_to_id: editing.reports_to_id ? Number(editing.reports_to_id) : null,
       });
       setEditing(null); reload();
     } catch (e) { setErr(e.message); }
@@ -395,6 +401,23 @@ function PeopleTab() {
           </div>
           <div className="form-group"><label className="form-label">Email</label>
             <input className="form-input" type="email" value={editing.email} onChange={e=>edf("email",e.target.value)}/></div>
+          {/* Reporting line, kept separate from KAD on purpose: a KAD director
+              reports to the CEO but still runs their own KAD, and it's kad_id
+              that drives sign-off, dashboards and target-setting. */}
+          <div className="form-group"><label className="form-label">Reports to</label>
+            <select className="form-select" value={editing.reports_to_id || ""}
+              onChange={e=>edf("reports_to_id", e.target.value || null)}>
+              <option value="">Nobody</option>
+              {(everyone || []).filter(x => x.id !== editing.id && x.status === "Active")
+                .map(x => (
+                  <option key={x.id} value={x.id}>
+                    {x.full_name}{x.designation ? ` · ${x.designation}` : ""}
+                  </option>
+                ))}
+            </select>
+            <p className="t-caption mt-1">
+              Who they report to. This does not change which KAD they belong to or run.
+            </p></div>
           <div className="form-group"><label className="form-label">Status</label>
             <select className="form-select" value={editing.status} onChange={e=>edf("status",e.target.value)}>
               <option>Active</option><option>Inactive</option>

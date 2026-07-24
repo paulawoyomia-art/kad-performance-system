@@ -301,10 +301,13 @@ export const leaderboard = {
 // Live company-wide activity — what everyone is doing now, not just what has
 // completed the chain. Executives and admins only.
 export const org = {
-  activity: (period) => req("GET", `/org/activity${period ? `?period=${period}` : ""}`),
+  activity: (period, kadId) => req("GET",
+    `/org/activity?${[period && `period=${period}`, kadId && `kad=${kadId}`].filter(Boolean).join("&")}`),
 };
 
 export const kad = {
-  people:  () => req("GET", `/kad/people`),
+  // `kad` drills into another KAD — the server only honours it for executives
+  // and admins, so passing it from anywhere else changes nothing.
+  people:  (kadId) => req("GET", `/kad/people${kadId ? `?kad=${kadId}` : ""}`),
   clients: () => req("GET", `/kad/clients`),
 };
