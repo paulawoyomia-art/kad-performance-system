@@ -3,7 +3,6 @@ import {
   dashboard as dashApi,
   flags as flagsApi,
   projectMgmt,
-  setup,
   periods as periodsApi,
   projects as projectsApi,
   allocations as allocApi,
@@ -75,7 +74,6 @@ export function KadDashboard({ actor, selectedPeriod, onAnyAction }) {
   );
   const [signing, setSigning] = useState(false);
   const [signErr, setSignErr] = useState("");
-  const [showCrossKad, setShowCrossKad] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
 
   if (loading) return <div className="loading-center"><span className="spinner" /></div>;
@@ -204,14 +202,7 @@ export function KadDashboard({ actor, selectedPeriod, onAnyAction }) {
       </div>
       {showProjects && <ProjectWorkspace actor={actor} />}
 
-      {/* Cross-KAD utilisation — see how other KADs' people are loaded, per person */}
-      <div className="flex justify-between items-center mt-4 mb-2">
-        <h3 className="t-subtitle" style={{ margin: 0 }}>Utilisation across all KADs</h3>
-        <button className="btn btn-ghost btn-sm" onClick={() => setShowCrossKad(s => !s)}>
-          {showCrossKad ? "Hide" : "Open"}
-        </button>
-      </div>
-      {showCrossKad && <ResourceVisibility selectedPeriod={selectedPeriod} />}
+      {/* Utilisation now has its own lens in My KAD — see KadView. */}
     </div>
   );
 }
@@ -614,7 +605,7 @@ function FlagManageModal({ flag, people, onClose, onDone }) {
 // ════════════════════════════════════════════════════════════════════════════
 // 4. PROJECT LEAD WORKSPACE
 // ════════════════════════════════════════════════════════════════════════════
-export function ProjectWorkspace({ actor }) {
+export function ProjectWorkspace({ actor, onNewProject }) {
   const { data: projects, loading, reload } = useAsync(() => projectsApi.list(), []);
   const [active, setActive] = useState(null);
   const { sorted, sortKey, sortDir, toggle } = useSort(projects, "project_name");
@@ -623,8 +614,18 @@ export function ProjectWorkspace({ actor }) {
 
   return (
     <div>
-      <h2 className="t-title mb-4">Projects</h2>
-      {projects?.length === 0 && <div className="empty"><p className="empty-title">No projects yet</p><p className="empty-body">Create one from the Manage tab.</p></div>}
+      <div className="flex justify-between items-center mb-4" style={{ gap: 8, flexWrap: "wrap" }}>
+        <h2 className="t-title" style={{ margin: 0 }}>Projects</h2>
+        {onNewProject && (
+          <button className="btn btn-secondary btn-sm" onClick={onNewProject}>+ Project</button>
+        )}
+      </div>
+      {projects?.length === 0 && (
+        <div className="empty">
+          <p className="empty-title">No projects yet</p>
+          <p className="empty-body">Use <strong>+ Project</strong> above to add the first one.</p>
+        </div>
+      )}
       {projects?.length > 0 && (
         <div className="card" style={{ padding: 0 }}><div className="table-wrap"><table>
           <thead><tr>
@@ -638,7 +639,7 @@ export function ProjectWorkspace({ actor }) {
           </tr></thead>
           <tbody>
             {sorted.map(p => (
-              <tr key={p.id}>
+              <tr key={p.id} onClick={() => setActive(p)} style={{ cursor: "pointer" }}>
                 <td><strong>{p.project_name}</strong></td>
                 <td>{p.client_name}</td>
                 <td><span className="badge badge-neutral">{p.status}</span></td>
@@ -646,7 +647,8 @@ export function ProjectWorkspace({ actor }) {
                 <td className="t-mono">{money(p.revenue_collected, p.currency)}</td>
                 <td>{pct(p.collection_pct)}</td>
                 <td>{p.project_lead_id === actor?.id && <span className="badge badge-info">You lead</span>}</td>
-                <td><button className="btn btn-secondary btn-sm" onClick={() => setActive(p)}>Open</button></td>
+                <td><button className="btn btn-secondary btn-sm"
+                  onClick={e => { e.stopPropagation(); setActive(p); }}>Open</button></td>
               </tr>
             ))}
           </tbody>

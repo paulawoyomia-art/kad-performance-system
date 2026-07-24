@@ -2,14 +2,16 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import AppShell, { Icons } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
-import { allocations as allocApi, periods as periodsApi, setup, flags as flagsApi,
+import { allocations as allocApi, periods as periodsApi, flags as flagsApi,
          leaderboard as lbApi } from "../api/client";
 import CanvasView from "./CanvasView";
 import IdeasView from "./IdeasView";
 import LeaderboardView from "./LeaderboardView";
 import KadView from "./KadView";
-import { KadDashboard, ManageView, FlagManagement, ProjectWorkspace, SubmissionReview,
-         NewAllocationModal, NewProjectModal, ResourceVisibility, OrgDashboard, ConsolidationView } from "./ManagerViews";
+import OrgActivity from "./OrgActivity";
+import HowToView from "./HowToView";
+import { SubmissionReview, NewAllocationModal, NewProjectModal,
+         OrgDashboard, ConsolidationView } from "./ManagerViews";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function useAsync(fn, deps = []) {
@@ -222,13 +224,18 @@ function AllocTableRow({ alloc, actor, roles, onAction, periodOpen = true }) {
         </td>
         <td>
           <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
-            {!hasTarget && (isHRBP || isDir) && (
+            {!hasTarget && (isHRBP || isDir || isLM) && (
               <SetTargetButton allocId={alloc.id}
                 who={alloc.employee_name} metric={alloc.output_metric} unit={alloc.unit}
                 onDone={() => onAction?.()} />
             )}
-            {hasTarget && !acknowledged && !isOwner && (isHRBP || isDir) && (
-              <span className="badge badge-warning" style={{ alignSelf: "center" }}>Awaiting ack</span>
+            {hasTarget && !acknowledged && !isOwner && (isHRBP || isDir || isLM) && (
+              <>
+                <span className="badge badge-warning" style={{ alignSelf: "center" }}>Awaiting ack</span>
+                <SetTargetButton allocId={alloc.id} current={alloc.target_value}
+                  who={alloc.employee_name} metric={alloc.output_metric} unit={alloc.unit}
+                  onDone={() => onAction?.()} />
+              </>
             )}
             {locked && !isOwner && (isHRBP || isDir || isLM) && (
               <button className="btn btn-ghost btn-sm" onClick={() => setReviewing(true)}>Review work</button>
@@ -393,8 +400,13 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit, periodOpen = true }
           </button>
         )}
         {/* Manager nudge: waiting on the employee to acknowledge. */}
-        {hasTarget && !acknowledged && !isOwner && (isHRBP || isDir) && (
-          <span className="badge badge-warning" style={{ alignSelf: "center" }}>Awaiting employee acknowledgement</span>
+        {hasTarget && !acknowledged && !isOwner && (isHRBP || isDir || isLM) && (
+          <>
+            <span className="badge badge-warning" style={{ alignSelf: "center" }}>Awaiting employee acknowledgement</span>
+            <SetTargetButton allocId={alloc.id} current={alloc.target_value}
+              who={alloc.employee_name} metric={alloc.output_metric} unit={alloc.unit}
+              onDone={() => onAction?.()} />
+          </>
         )}
 
         {/* Employee submits output — only until the KAD Director confirms the work.
@@ -452,9 +464,16 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit, periodOpen = true }
   );
 }
 
-function SetTargetButton({ allocId, who, metric, unit, onDone }) {
+/**
+ * `current` turns this into an edit rather than a first set. Managers mistype
+ * numbers, and until the employee accepts, nothing downstream depends on the
+ * figure — so it's simply overwritten. Once accepted the target is locked and
+ * the server refuses this route, which is what the formal edit workflow (with
+ * a written justification and re-approval) exists for.
+ */
+function SetTargetButton({ allocId, who, metric, unit, onDone, current = null }) {
   const [open, setOpen]   = useState(false);
-  const [val, setVal]     = useState("");
+  const [val, setVal]     = useState(current == null ? "" : String(current));
   const [saving, setSaving] = useState(false);
   const [err, setErr]     = useState("");
   async function save(e) {
@@ -464,7 +483,12 @@ function SetTargetButton({ allocId, who, metric, unit, onDone }) {
     catch (e) { setErr(e.message); }
     finally { setSaving(false); }
   }
-  if (!open) return <button className="btn btn-primary btn-sm" onClick={() => setOpen(true)}>Set target</button>;
+  if (!open) return (
+    <button className={`btn btn-sm ${current == null ? "btn-primary" : "btn-ghost"}`}
+      onClick={() => setOpen(true)}>
+      {current == null ? "Set target" : "Edit target"}
+    </button>
+  );
   return (
     <form onSubmit={save} style={{ width: "100%" }}>
       {who && (
@@ -850,6 +874,28 @@ function TeamAllocations({ actor, periods, selectedPeriod, setSelectedPeriod, on
 }
 
 // ── Flags view ────────────────────────────────────────────────────────────────
+/**
+ * The Organisation tab holds two different questions, so it holds two views:
+ * "what has this company delivered" (consolidated, reported work only) and
+ * "what is it doing right now" (everything, at any stage). Mid-cycle the first
+ * one is nearly empty, which is correct but unhelpful on its own.
+ */
+function OrgTabs({ selectedPeriod }) {
+  const [view, setView] = useState("activity");
+  return (
+    <div>
+      <div className="flex gap-2 mb-4" style={{ flexWrap: "wrap" }}>
+        <button className={`btn btn-sm ${view === "activity" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setView("activity")}>Activity now</button>
+        <button className={`btn btn-sm ${view === "reported" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setView("reported")}>Reported output</button>
+      </div>
+      {view === "activity" ? <OrgActivity selectedPeriod={selectedPeriod} />
+                           : <OrgDashboard selectedPeriod={selectedPeriod} />}
+    </div>
+  );
+}
+
 function FlagsView({ periods, selectedPeriod }) {
   const { data: flagData, loading } = useAsync(
     () => selectedPeriod ? flagsApi.list(selectedPeriod) : Promise.resolve([]),
@@ -988,10 +1034,11 @@ export default function StaffDashboard() {
   //   Employee      → My work
   //   Line Manager  → My work + Register (set targets, confirm their team's work)
   //   HRBP          → My work + Register
-  //   KAD Director  → My work + Register + KAD dashboard + Projects
+  //   KAD Director  → My work + Register + My KAD + Consolidation
   //   Executive/CEO → Organisation
   const isLineManager = hasRole("Line Manager");
-  const canRegister = isHRBP || isDirector || isLineManager;   // allocate/target/confirm
+  // Executives allocate across every KAD — the one cross-KAD power in the system.
+  const canRegister = isHRBP || isDirector || isLineManager || isExec;
   // "My KAD" absorbs the old KAD dashboard and Projects tabs. Line managers see
   // it as well — the API scopes them to their own reports and hides the lenses
   // they have no business in, so nothing needs gating twice.
@@ -999,7 +1046,7 @@ export default function StaffDashboard() {
   const canProjects = false;                  // folded into My KAD
   const canOrg      = isExec;                 // cross-KAD consolidation
 
-  const ALL_TABS = ["my","canvas","ideas","leaderboard","register","consolidation","kad","org"];
+  const ALL_TABS = ["my","canvas","ideas","leaderboard","register","consolidation","kad","org","help"];
   // Tabs whose content is scoped to a performance period.
   const PERIOD_TABS = new Set(["my","register","consolidation","kad","org"]);
   const pathTab = location.pathname.replace(/^\//, "") || "my";
@@ -1062,10 +1109,12 @@ export default function StaffDashboard() {
       { key: "org", label: "Organisation", mobileLabel: "Org", icon: Icons.home,
         active: tab === "org", onClick: () => setTab("org") },
     ] : []),
+    { key: "help", label: "How to use", mobileLabel: "Help", icon: Icons.periods,
+      active: tab === "help", onClick: () => setTab("help") },
   ];
 
   const titleMap = { my: "My work", canvas: "My day", ideas: "Ideas", leaderboard: "Leaderboard", register: "Register", consolidation: "KAD Consolidation",
-                     kad: "My KAD", projects: "Projects",
+                     kad: "My KAD", projects: "Projects", help: "How to use",
                      org: "Organisation overview" };
 
   return (
@@ -1118,6 +1167,7 @@ export default function StaffDashboard() {
         onGoToWork={(p) => { setCanvasPrefill(p || null); setTab("my"); }} />}
       {tab === "ideas"       && <IdeasView />}
       {tab === "leaderboard" && <LeaderboardView actor={actor} />}
+      {tab === "help"        && <HowToView />}
 
       {/* Period-scoped tabs. */}
       {periods && periods.length > 0 && (
@@ -1128,7 +1178,7 @@ export default function StaffDashboard() {
           {tab === "consolidation" && (isHRBP || isDirector) && <ConsolidationView selectedPeriod={selectedPeriod} />}
           {tab === "consolidation" && !(isHRBP || isDirector) && <MyAllocations actor={actor} periods={periods} selectedPeriod={selectedPeriod} setSelectedPeriod={setSelectedPeriod} onAnyAction={reloadInbox} />}
           {tab === "kad"      && <KadView actor={actor} selectedPeriod={selectedPeriod} onAnyAction={reloadInbox} />}
-          {tab === "org"      && <OrgDashboard selectedPeriod={selectedPeriod} />}
+          {tab === "org"      && <OrgTabs selectedPeriod={selectedPeriod} />}
         </>
       )}
     </AppShell>

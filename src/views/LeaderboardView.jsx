@@ -122,27 +122,50 @@ function YourCard({ me, total }) {
   );
 }
 
+/**
+ * Collapsed by default. The rules have to be findable, but once someone has
+ * read them they don't want a scoring table between them and the board every
+ * single visit.
+ */
 function Rules({ points = {} }) {
+  const [open, setOpen] = useState(false);
   const rows = [
-    ["Submit work", points.submitted],
-    ["Accept a target", points.accepted],
-    ["Confirm someone's work", points.confirmed],
-    ["Show up and do anything", points.day],
+    ["Submit work", points.submitted, "per submission"],
+    ["Accept a target", points.accepted, "per target"],
+    ["Confirm someone's work", points.confirmed, "per row"],
+    ["Write an idea", points.idea, "per day"],
+    ["Plan your day in My day", points.planned, "per day"],
+    ["Log a win, blocker or learning", points.captured, "per day"],
+    ["Show up and do anything", points.day, "per day"],
   ];
   return (
-    <div className="card mb-4" style={{ padding: "12px 14px" }}>
-      <p className="t-label" style={{ marginBottom: 8 }}>How points work</p>
-      <div style={{ display: "grid", gap: 4 }}>
-        {rows.map(([label, n]) => (
-          <div key={label} className="flex justify-between">
-            <span>{label}</span>
-            <span className="t-mono">+{n}</span>
+    <div className="card mb-4" style={{ padding: 0, overflow: "hidden" }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 14px", background: "none", border: "none", cursor: "pointer",
+          font: "inherit", color: "inherit", textAlign: "left" }}>
+        <span style={{ fontWeight: 600 }}>How points work</span>
+        <span style={{ color: "var(--text-muted)" }}>{open ? "▾" : "›"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 14px" }}>
+          <div style={{ display: "grid", gap: 6 }}>
+            {rows.map(([label, n, per]) => (
+              <div key={label} className="flex justify-between" style={{ gap: 10 }}>
+                <span>{label} <span className="t-caption">· {per}</span></span>
+                <span className="t-mono">+{n}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <p className="t-caption" style={{ marginTop: 8 }}>
-        Streaks count weekdays. A weekend can't break one — and doesn't extend one either.
-      </p>
+          <p className="t-caption" style={{ marginTop: 10 }}>
+            Anything you write yourself — tasks, notes, ideas — counts once a day, however
+            much of it you write. Forty notes earns what one note earns.
+          </p>
+          <p className="t-caption" style={{ marginTop: 6 }}>
+            Streaks count weekdays. A weekend can't break one, and doesn't extend one either.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

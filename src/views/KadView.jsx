@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { kad as kadApi } from "../api/client";
-import { KadDashboard, ProjectWorkspace } from "./ManagerViews";
+import { KadDashboard, ProjectWorkspace, ResourceVisibility, NewProjectModal,
+         FlagManagement } from "./ManagerViews";
 
 /**
  * My KAD — one place for the things a KAD is made of, in four lenses.
@@ -17,6 +18,7 @@ import { KadDashboard, ProjectWorkspace } from "./ManagerViews";
 export default function KadView({ actor, selectedPeriod, onAnyAction }) {
   const [lens, setLens] = useState("people");
   const [scope, setScope] = useState(null);
+  const [newProject, setNewProject] = useState(false);
 
   // The API decides what this person may see; we ask once so the lens buttons
   // can't offer something the server would refuse.
@@ -27,7 +29,16 @@ export default function KadView({ actor, selectedPeriod, onAnyAction }) {
   const wide = scope === "kad" || scope === "org";
   const lenses = [
     ["people", "People"],
-    ...(wide ? [["overview", "Overview"], ["projects", "Projects"], ["clients", "Clients"]] : []),
+    // Flags had no home at all: the engine has been raising them on a cron with
+    // nowhere to show them, and the acknowledge/assign/resolve actions were
+    // built and unreachable. The API already scopes them per role.
+    ["flags", "Flags"],
+    // Utilisation sits next to People because both answer "who do I have and
+    // what are they carrying". It was previously a collapsed section at the
+    // bottom of the overview — which is a poor home for the one genuinely
+    // cross-KAD view in the app.
+    ...(wide ? [["utilisation", "Utilisation"], ["overview", "Overview"],
+                ["projects", "Projects"], ["clients", "Clients"]] : []),
   ];
 
   return (
@@ -41,9 +52,18 @@ export default function KadView({ actor, selectedPeriod, onAnyAction }) {
       </div>
 
       {lens === "people"   && <PeopleLens />}
+      {lens === "flags"       && <FlagManagement actor={actor} selectedPeriod={selectedPeriod} />}
+      {lens === "utilisation" && <ResourceVisibility selectedPeriod={selectedPeriod} />}
       {lens === "overview" && <KadDashboard actor={actor} selectedPeriod={selectedPeriod} onAnyAction={onAnyAction} />}
-      {lens === "projects" && <ProjectWorkspace actor={actor} />}
+      {lens === "projects" && <ProjectWorkspace actor={actor}
+        onNewProject={() => setNewProject(true)} />}
       {lens === "clients"  && <ClientsLens />}
+
+      {newProject && (
+        <NewProjectModal actor={actor}
+          onClose={() => setNewProject(false)}
+          onDone={() => setNewProject(false)} />
+      )}
     </div>
   );
 }
@@ -220,7 +240,9 @@ function ClientsLens() {
         </div>
       </div>
       <p className="t-caption mt-2">
-        Converted to USD so clients billing in different currencies can be compared.
+        Contract and collected are converted to USD, so clients billing in different
+        currencies can be compared directly. Clients themselves are set up by an
+        administrator — ask them to add or change one.
       </p>
     </div>
   );
