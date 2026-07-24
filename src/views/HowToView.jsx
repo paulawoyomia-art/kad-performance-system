@@ -82,12 +82,49 @@ function OwnWork() {
      <Row><Chip cls="badge-info" w={68}>Doing</Chip>
        <span style={{ flex: 1, minWidth: 110 }}>Patrol KN-4471</span>
        <span className="t-caption">→ Tmw</span></Row>],
+    ["Tie it to a target", "My day",
+     "Two places, and this is the one habit worth forming. Under the add box, a dropdown that starts at \"Not tied to a target\". On a task already in your list, the grey line under its title.",
+     <>
+       <p className="t-caption" style={{ margin: "0 0 4px" }}>When adding — the dropdown under the box</p>
+       <div style={{ border: "1px dashed var(--border-strong, #ccc)", borderRadius: "var(--radius)",
+         padding: 10, marginBottom: 10 }}>
+         <Row><Fake>Add a task for today</Fake><span className="btn btn-primary btn-sm">Add</span></Row>
+         <div style={{ marginTop: 6 }}>
+           <Fake>Not tied to a target ▾</Fake>
+           <span className="t-caption" style={{ marginLeft: 8 }}>→ pick PPM Patrol · GICL Kano fiber</span>
+         </div>
+       </div>
+       <p className="t-caption" style={{ margin: "0 0 4px" }}>Afterwards — tap the line under the title</p>
+       <div style={{ border: "1px dashed var(--border-strong, #ccc)", borderRadius: "var(--radius)", padding: 10 }}>
+         <Row><Chip w={68}>To do</Chip>
+           <span style={{ flex: 1, minWidth: 110 }}>Site survey notes
+             <span className="t-caption" style={{ display: "block", textDecoration: "underline" }}>
+               + tie to a target
+             </span></span></Row>
+       </div>
+       <p className="t-caption" style={{ margin: "8px 0 0" }}>
+         Once tied, progress shows against the real number, and finishing the task offers
+         to submit it — that's step 6 of the cycle.
+       </p>
+     </>],
     ["Capture what happened", "My day",
      "One tap each. A win, something blocking you, or something you learned.",
      <Row gap={6}><Fake>+ Win</Fake><Fake>+ Blocker</Fake><Fake>+ Learnt</Fake></Row>],
     ["Keep your own notes", "Ideas",
-     "Private in the system itself — no manager, HRBP or administrator can open them. Share one with named colleagues when it's ready; they can read it, not change it.",
-     <Row><Fake>+ New idea</Fake></Row>],
+     "Private in the system itself — no manager, HRBP or administrator can open them.",
+     <>
+       <Row><Fake>+ New idea</Fake></Row>
+       <p className="t-caption" style={{ margin: "10px 0 4px" }}>
+         To share: open the idea, then <strong>Share</strong> in the top right
+       </p>
+       <div style={{ border: "1px dashed var(--border-strong, #ccc)", borderRadius: "var(--radius)", padding: 10 }}>
+         <Row><Fake>Choose a colleague ▾</Fake><span className="btn btn-primary btn-sm">Share</span></Row>
+         <p className="t-caption" style={{ margin: "6px 0 0" }}>
+           They can read it. They cannot edit it, delete it, or pass it on. Remove them
+           any time and it's yours alone again.
+         </p>
+       </div>
+     </>],
     ["Look back", "My day → Your records",
      "Search everything you've written and browse past days. Before reconstructing something from memory, search for it.",
      <Row><Fake>Search “offer letter”</Fake></Row>],
@@ -147,10 +184,15 @@ function Cycle({ roles }) {
     { n: 5, actor: "Admin", title: "Opens the KAD", where: "Admin console", mine: false,
       text: "Each KAD opens on its own once its targets are all accepted. A slow KAD doesn't hold up the others." },
     { n: 6, actor: "The employee", title: "Does the work, and submits", where: "My day → My work", mine: true,
-      text: "Tie your tasks to the target as you go. Finishing one offers to submit, carrying the date and a description built from your task titles.",
-      visual: <Row gap={6}><Chip cls="badge-success">Date ✓</Chip>
-        <Chip cls="badge-success">Description ✓</Chip>
-        <Chip>Figure — you</Chip><Chip>Proof — you</Chip></Row>,
+      text: "Tie your tasks to the target as you go — the dropdown under the add box in My day, or the grey line under a task already listed. Finishing a tied task offers to submit it.",
+      visual: <>
+        <Row><Fake>Not tied to a target ▾</Fake>
+          <span className="t-caption">→ PPM Patrol</span></Row>
+        <p className="t-caption" style={{ margin: "8px 0 4px" }}>What comes across with you:</p>
+        <Row gap={6}><Chip cls="badge-success">Date ✓</Chip>
+          <Chip cls="badge-success">Description ✓</Chip>
+          <Chip>Figure — you</Chip><Chip>Proof — you</Chip></Row>
+      </>,
       unblocks: "The figure and the proof are never filled in for you — they're your word, and they're why the numbers are trusted." },
     { n: 7, actor: "Line manager or KAD director", title: "Confirms the work", where: "Register",
       mine: roles.lm || roles.dir,
@@ -297,7 +339,9 @@ function Oversight({ roles, manages }) {
           </p>
           <Note>
             Your directors report to you, so they appear in My KAD → People with a link into the
-            KAD each of them runs.
+            KAD each of them runs. Reporting lines are set in <strong>Admin → People</strong> —
+            edit a person and choose who they report to. It doesn't change which KAD they belong
+            to or run.
           </Note>
         </div>
       )}
