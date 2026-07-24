@@ -168,7 +168,10 @@ export const allocations = {
   // THREE-ACTOR CHAIN — KAD work-confirm (row) → HRBP completeness → KAD report-to-org
   setTarget:      (id, target_value)  => req("POST", `/allocations/${id}/target`,  { body: { target_value } }), // HRBP/KAD allocate
   acknowledge:    (id)                => req("POST", `/allocations/${id}/target/acknowledge`),  // employee
-  confirm:        (id)                => req("POST", `/allocations/${id}/confirm`),    // KAD Director: Work confirmed (row)
+  // The server refuses (409) when there's nothing submitted, or when the figure
+  // falls short, and returns what it wants acknowledged. Pass the ack back to
+  // go ahead. See confirmWork() in StaffDashboard for the prompt.
+  confirm:        (id, body = {})      => req("POST", `/allocations/${id}/confirm`, { body }),
   unconfirm:      (id)                => req("POST", `/allocations/${id}/unconfirm`),  // reopen row
   hrbpFlag:       (id, note)          => req("POST", `/allocations/${id}/hrbp-flag`,   { body: { note } }),  // HRBP raises for KAD
   hrbpUnflag:     (id)                => req("POST", `/allocations/${id}/hrbp-unflag`),

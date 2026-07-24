@@ -184,11 +184,23 @@ function Cycle({ roles }) {
     { n: 5, actor: "Admin", title: "Opens the KAD", where: "Admin console", mine: false,
       text: "Each KAD opens on its own once its targets are all accepted. A slow KAD doesn't hold up the others." },
     { n: 6, actor: "The employee", title: "Does the work, and submits", where: "My day → My work", mine: true,
-      text: "Tie your tasks to the target as you go — the dropdown under the add box in My day, or the grey line under a task already listed. Finishing a tied task offers to submit it.",
+      text: "Two routes to the same place. Directly: open My work, find the target, tap Details then + Add submission. Or from My day: tie your tasks to the target as you go, and finishing one offers to submit — carrying the date and description with it.",
       visual: <>
-        <Row><Fake>Not tied to a target ▾</Fake>
-          <span className="t-caption">→ PPM Patrol</span></Row>
-        <p className="t-caption" style={{ margin: "8px 0 4px" }}>What comes across with you:</p>
+        <p className="t-caption" style={{ margin: "0 0 4px" }}>Directly — My work</p>
+        <div style={{ border: "1px dashed var(--border-strong, #ccc)", borderRadius: "var(--radius)",
+          padding: 10, marginBottom: 10 }}>
+          <Row><span style={{ flex: 1, minWidth: 130 }}>PPM Patrol · 18 of 40 KM</span>
+            <Fake>Details</Fake></Row>
+          <Row gap={6}><span className="t-caption" style={{ marginTop: 6 }}>
+            then</span> <span className="btn btn-primary btn-sm">+ Add submission</span></Row>
+        </div>
+        <p className="t-caption" style={{ margin: "0 0 4px" }}>Or from My day — tie the task first</p>
+        <div style={{ border: "1px dashed var(--border-strong, #ccc)", borderRadius: "var(--radius)",
+          padding: 10, marginBottom: 10 }}>
+          <Row><Fake>Not tied to a target ▾</Fake>
+            <span className="t-caption">→ PPM Patrol</span></Row>
+        </div>
+        <p className="t-caption" style={{ margin: "0 0 4px" }}>Either way, the form asks for:</p>
         <Row gap={6}><Chip cls="badge-success">Date ✓</Chip>
           <Chip cls="badge-success">Description ✓</Chip>
           <Chip>Figure — you</Chip><Chip>Proof — you</Chip></Row>

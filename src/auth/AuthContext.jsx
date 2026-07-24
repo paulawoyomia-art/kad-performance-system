@@ -39,6 +39,8 @@ export function AuthProvider({ children }) {
       must_change_password: res.must_change_password,
       ...res.account,
       roles: res.account?.roles || [],
+      kad_id: res.account?.kad_id ?? null,
+      kad_name: res.account?.kad_name ?? null,
     };
     saveActor(a);
     return a;

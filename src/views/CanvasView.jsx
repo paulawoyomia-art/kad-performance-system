@@ -414,35 +414,64 @@ function TaskList({ tasks, targets = [], onChange, onError }) {
   const [dragId, setDragId] = useState(null);
   const [editingLink, setEditingLink] = useState(null);   // task id being re-linked
 
+  // Three groups, in the order a day actually runs: what you're on now, what's
+  // waiting, and what's behind you. Tapping a task's chip moves it between them,
+  // so the list reorganises itself as you work rather than needing tidying.
+  const groups = [
+    ["doing", "Doing now", tasks.filter(t => t.status === "doing")],
+    ["open",  "To do",     tasks.filter(t => t.status === "open" || t.status === "deferred")],
+    ["done",  "Done",      tasks.filter(t => t.status === "done")],
+  ].filter(([, , list]) => list.length > 0);
+
+  return (
+    <>
+      {groups.map(([key, label, list]) => (
+        <div key={key} style={{ marginBottom: 12 }}>
+          <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+            <span className="t-label" style={{ margin: 0 }}>{label}</span>
+            <span className="badge badge-neutral">{list.length}</span>
+          </div>
+          <TaskGroup tasks={list} all={tasks} targets={targets}
+            onChange={onChange} onError={onError}
+            dragId={dragId} setDragId={setDragId}
+            editingLink={editingLink} setEditingLink={setEditingLink}
+            dimmed={key === "done"} />
+        </div>
+      ))}
+      {groups.length === 0 && <p className="t-caption">Nothing planned yet.</p>}
+    </>
+  );
+}
+
+/** One group's rows. Ordering and dragging still operate on the whole day. */
+function TaskGroup({ tasks, all, targets, onChange, onError, dragId, setDragId,
+                     editingLink, setEditingLink, dimmed }) {
   const run = async (fn) => {
     try { await fn(); onChange(); }
     catch (e) { onError?.(e.message); }
   };
-
   const move = (id, dir) => {
-    const ids = tasks.map(t => t.id);
+    const ids = all.map(t => t.id);
     const i = ids.indexOf(id);
     const j = i + dir;
     if (i < 0 || j < 0 || j >= ids.length) return;
     [ids[i], ids[j]] = [ids[j], ids[i]];
     run(() => canvasApi.reorder(ids));
   };
-
   const drop = (targetId) => {
     if (!dragId || dragId === targetId) return;
-    const ids = tasks.map(t => t.id).filter(x => x !== dragId);
+    const ids = all.map(t => t.id).filter(x => x !== dragId);
     ids.splice(ids.indexOf(targetId), 0, dragId);
     setDragId(null);
     run(() => canvasApi.reorder(ids));
   };
-
   const cycle = (t) => {
     const next = t.status === "open" ? "doing" : t.status === "doing" ? "done" : "open";
     run(() => canvasApi.updateTask(t.id, { status: next }));
   };
 
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+    <div className="card" style={{ padding: 0, overflow: "hidden", opacity: dimmed ? 0.72 : 1 }}>
       {tasks.map((t, i) => (
         <div key={t.id}
           draggable

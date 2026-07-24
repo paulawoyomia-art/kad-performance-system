@@ -248,7 +248,7 @@ function AllocTableRow({ alloc, actor, roles, onAction, periodOpen = true }) {
             )}
             {locked && !workConfirmed && (isDir || isLM) && (
               <button className="btn btn-secondary btn-sm" disabled={busy}
-                onClick={() => act(() => allocApi.confirm(alloc.id), "Confirm")}>Confirm work</button>
+                onClick={() => act(() => confirmWork(alloc.id), "Confirm")}>Confirm work</button>
             )}
             {workConfirmed && !reported && (isDir || isLM) && (
               <button className="btn btn-ghost btn-sm" disabled={busy}
@@ -442,7 +442,7 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit, periodOpen = true }
         {/* Layer 1 — KAD Director confirms the work was done (line manager). KAD only. */}
         {locked && !workConfirmed && isDir && (
           <button className="btn btn-secondary btn-sm" disabled={busy}
-            onClick={() => act(() => allocApi.confirm(alloc.id), "Confirm")}>
+            onClick={() => act(() => confirmWork(alloc.id), "Confirm")}>
             Confirm work
           </button>
         )}
@@ -471,6 +471,31 @@ function AllocRow({ alloc, actor, roles, onAction, onSubmit, periodOpen = true }
  * the server refuses this route, which is what the formal edit workflow (with
  * a written justification and re-approval) exists for.
  */
+
+/**
+ * Confirming work, with the evidence check in the way.
+ *
+ * The server refuses a confirm when nothing has been submitted, or when the
+ * reported figure falls short of the target, and hands back what it wants
+ * acknowledged. That refusal isn't an error to swallow — it's the point. A
+ * manager confirming "24 sales" against an empty row should have to look at
+ * that fact and say yes deliberately.
+ */
+async function confirmWork(allocId) {
+  try {
+    await allocApi.confirm(allocId);
+    return true;
+  } catch (e) {
+    const d = e.data || {};
+    if (!d.needs_acknowledgement) throw e;
+    if (!confirm(`${d.message}\n\nConfirm anyway?`)) return false;
+    await allocApi.confirm(allocId, d.kind === "no_submission"
+      ? { acknowledge_no_submission: true }
+      : { acknowledge_shortfall: true });
+    return true;
+  }
+}
+
 function SetTargetButton({ allocId, who, metric, unit, onDone, current = null }) {
   const [open, setOpen]   = useState(false);
   const [val, setVal]     = useState(current == null ? "" : String(current));

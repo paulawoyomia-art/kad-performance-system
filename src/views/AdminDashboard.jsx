@@ -336,10 +336,11 @@ function PeopleTab() {
                 <SortTh label="KAD" sortKeyName="kad_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
                 <SortTh label="Email" sortKeyName="email" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
                 <SortTh label="Status" sortKeyName="status" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
+                <SortTh label="Reports to" sortKeyName="reports_to_name" sortKey={sortKey} sortDir={sortDir} onSort={toggle} />
                 <th>HR Manager</th><th></th>
               </tr></thead>
               <tbody>
-                {sorted?.length === 0 && <tr><td colSpan={10}><div className="empty"><p className="empty-title">No people yet</p><p className="empty-body">Import a CSV or add someone manually.</p></div></td></tr>}
+                {sorted?.length === 0 && <tr><td colSpan={11}><div className="empty"><p className="empty-title">No people yet</p><p className="empty-body">Import a CSV or add someone manually.</p></div></td></tr>}
                 {sorted?.map(p => (
                   <tr key={p.id}>
                     <td className="t-caption">{p.id}</td>
@@ -354,6 +355,9 @@ function PeopleTab() {
                       {p.must_change_password
                         ? <span className="badge badge-warning" style={{marginLeft:4}}>Password not changed</span>
                         : null}
+                    </td>
+                    <td className="t-caption">
+                      {p.reports_to_name || <span style={{ color: "var(--text-muted)" }}>—</span>}
                     </td>
                     <td>
                       {p.is_hr_manager

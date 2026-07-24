@@ -26,6 +26,9 @@ exactly like "nothing happened".
 Navigate to each, pencil icon, Ctrl+A, delete, paste, commit:
 
   src/views/KadView.jsx
+  src/views/CanvasView.jsx
+  src/components/AppShell.jsx
+  src/auth/AuthContext.jsx
   src/views/ManagerViews.jsx
   src/views/StaffDashboard.jsx
   src/views/LeaderboardView.jsx
@@ -40,6 +43,16 @@ Navigate to each, pencil icon, Ctrl+A, delete, paste, commit:
 All applied live already: canvas tables, ideas tables, activity_log,
 people.reports_to_id, Executive sets_targets, the four directors' reporting
 lines to Kehinde Adewoye.
+
+## New in this round
+
+- Confirming work now requires evidence: nothing submitted, or a figure short of
+  target, must be acknowledged deliberately — and a confirmed zero leaves a flag
+- Tasks group themselves: Doing now / To do / Done
+- Everyone can see which KAD they're in (sidebar)
+- Admin → People: Reports to column and picker
+- Admin: metric catalog review — fix a wrongly-set aggregation without SQL
+- How to: both submission routes shown
 
 ## What lands with this
 

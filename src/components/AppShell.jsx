@@ -75,6 +75,12 @@ export default function AppShell({ title, navItems = [], children, navExtras }) 
         <div className="sidebar-user">
           <div className="sidebar-user-name">{actor?.full_name || "Administrator"}</div>
           <div className="sidebar-user-email">{actor?.email}</div>
+          {/* Which KAD you're in. Nothing in the app said so before, and people
+              genuinely didn't know — it shapes who sets your targets and who
+              confirms your work. */}
+          {actor?.kad_name && (
+            <div className="sidebar-user-email" style={{ marginTop: 2 }}>{actor.kad_name}</div>
+          )}
           <RoleBadges roles={actor?.roles} isAdmin={isAdmin()} />
         </div>
 
