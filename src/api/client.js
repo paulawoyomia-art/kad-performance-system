@@ -298,6 +298,12 @@ export const leaderboard = {
 
 // ── my kad ───────────────────────────────────────────────────────────────────
 // People and clients, both scoped server-side to whatever the caller may see.
+// Live company-wide activity — what everyone is doing now, not just what has
+// completed the chain. Executives and admins only.
+export const org = {
+  activity: (period) => req("GET", `/org/activity${period ? `?period=${period}` : ""}`),
+};
+
 export const kad = {
   people:  () => req("GET", `/kad/people`),
   clients: () => req("GET", `/kad/clients`),
