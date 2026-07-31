@@ -873,8 +873,12 @@ export function SubmissionReview({ alloc, canQuery, onClose, onQueried }) {
         url = await allocApi.fetchProof(alloc.id, sub.id);
         setProofUrls(p => ({ ...p, [sub.id]: url }));
       }
+      const ext = ((sub.proof_key || "").split(".").pop() || "").toLowerCase();
+      const kind = ext === "pdf" ? "pdf"
+                 : /^(png|jpe?g|gif|webp|bmp|svg|heic|heif|avif)$/.test(ext) ? "image"
+                 : "other";
       setProofView({ url, name: sub.proof_description || `Proof — ${sub.date_of_activity}`,
-                     isPdf: /\.pdf($|\?)/i.test(sub.proof_key || "") });
+                     ext, kind });
     } catch (e) { setErr(e.message); }
   }
   async function sendQuery(subId) {
@@ -1004,13 +1008,30 @@ function ProofViewer({ proof, onClose }) {
           style={{ flex: 1, overflow: "hidden", background: "var(--surface-2, #f0f0f0)",
                    display: "flex", alignItems: "center", justifyContent: "center",
                    cursor: zoom > 1 ? "grab" : "default", position: "relative" }}>
-          {proof.isPdf ? (
+          {proof.kind === "pdf" ? (
             <iframe title="proof" src={proof.url} style={{ width: "100%", height: "100%", border: "none" }} />
-          ) : (
+          ) : proof.kind === "image" ? (
             <img src={proof.url} alt={proof.name} draggable={false}
               style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                        transformOrigin: "center center", transition: dragRef.current ? "none" : "transform 0.05s",
                        maxWidth: "100%", maxHeight: "100%", userSelect: "none" }} />
+          ) : (
+            <div style={{ textAlign: "center", padding: 24, maxWidth: 420 }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>📄</div>
+              <p className="t-subtitle" style={{ marginBottom: 4 }}>
+                {proof.ext ? `.${proof.ext.toUpperCase()} file` : "This file"} can’t be previewed here
+              </p>
+              <p className="t-caption" style={{ marginBottom: 16 }}>
+                Word, Excel and similar files open in their own app. Download the file or open it in a new tab to review it.
+              </p>
+              <div className="flex items-center gap-2" style={{ justifyContent: "center" }}>
+                <a className="btn btn-primary btn-sm" href={proof.url}
+                   download={`${(proof.name || "proof").replace(/[^\w.\-]+/g, "-").replace(/-+/g, "-").slice(0, 60)}.${proof.ext || "bin"}`}>
+                  Download
+                </a>
+                <a className="btn btn-secondary btn-sm" href={proof.url} target="_blank" rel="noreferrer">Open in new tab</a>
+              </div>
+            </div>
           )}
         </div>
         <div style={{ padding: "8px 12px" }}>
