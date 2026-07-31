@@ -26,7 +26,11 @@ export default function KadView({ actor, selectedPeriod, onAnyAction }) {
     kadApi.people().then(r => setScope(r.scope)).catch(() => setScope("none"));
   }, []);
 
-  const wide = scope === "kad" || scope === "org";
+  // "kad"/"org" are full-KAD views; "exec" is the CEO looking at their own KAD
+  // (Shared Services, which they also direct) — they get the same lenses. The
+  // People lens still scopes an Executive to own-KAD + direct reports; this only
+  // controls which lens *tabs* are offered.
+  const wide = scope === "kad" || scope === "org" || scope === "exec";
   const lenses = [
     ["people", "People"],
     // Flags had no home at all: the engine has been raising them on a cron with
