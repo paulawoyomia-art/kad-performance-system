@@ -250,7 +250,13 @@ export function ManageView({ actor, selectedPeriod }) {
 }
 
 export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
-  const { data: people } = useAsync(() => allocApi.allocatablePeople(actor?.kad_id || null), []);
+  // Executives allocate to their own KAD plus their direct reports (the KAD
+  // Directors who report to the CEO); the backend enforces exactly the same
+  // scope, so the picker and the server agree. Every other role is unchanged —
+  // locked to their own KAD. For an Executive we pass null so the server returns
+  // that own-KAD + direct-reports set; other roles pass their own kad_id.
+  const isExec = (actor?.roles || []).some(r => r.role_name === "Executive");
+  const { data: people } = useAsync(() => allocApi.allocatablePeople(isExec ? null : (actor?.kad_id || null)), []);
   const { data: projects } = useAsync(() => projectsApi.list(), []);
   const { data: periods } = useAsync(() => periodsApi.list(), []);
   const { data: outputTypes, reload: reloadTypes } = useAsync(() => allocApi.outputTypes(), []);
@@ -324,17 +330,18 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "Create allocation"}</button>
       </>}>
-      <div className="form-group"><label className="form-label">Employee <span>*</span></label>
+      <div className="form-group"><label className="form-label">Employee <span>*</span>
+        {isExec && <span className="t-caption" style={{ fontWeight: 400 }}> (your Shared Services team and your direct reports)</span>}</label>
         <select className="form-select" value={form.employee_id} onChange={e => f("employee_id", e.target.value)}>
           <option value="">Select…</option>
-          {people?.map(p => <option key={p.id} value={p.id}>{p.full_name} ({p.employee_id})</option>)}
+          {people?.map(p => <option key={p.id} value={p.id}>{p.full_name} ({p.employee_id}){isExec && p.kad_name && p.kad_id !== actor?.kad_id ? ` · ${p.kad_name}` : ""}</option>)}
         </select>
       </div>
       <div className="grid-2">
         <div className="form-group"><label className="form-label">Project <span>*</span></label>
           <select className="form-select" value={form.project_id} onChange={e => f("project_id", e.target.value)}>
             <option value="">Select…</option>
-            {projects?.map(p => <option key={p.id} value={p.id}>{p.project_name}</option>)}
+            {projects?.map(p => <option key={p.id} value={p.id}>{p.project_name}{isExec && p.kad_name ? ` · ${p.kad_name}` : ""}</option>)}
           </select>
         </div>
         <div className="form-group"><label className="form-label">Period <span>*</span></label>
