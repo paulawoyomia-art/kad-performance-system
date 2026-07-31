@@ -313,4 +313,11 @@ export const kad = {
   // and admins, so passing it from anywhere else changes nothing.
   people:  (kadId) => req("GET", `/kad/people${kadId ? `?kad=${kadId}` : ""}`),
   clients: () => req("GET", `/kad/clients`),
+  submissions: (period, blockersOnly) => {
+    const p = new URLSearchParams();
+    if (period) p.set("period", period);
+    if (blockersOnly) p.set("blockers", "1");
+    const q = p.toString();
+    return req("GET", `/kad/submissions${q ? `?${q}` : ""}`);
+  },
 };
