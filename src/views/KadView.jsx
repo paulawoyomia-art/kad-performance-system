@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { kad as kadApi, canvas as canvasApi, org as orgApi } from "../api/client";
 import { KadDashboard, ProjectWorkspace, ResourceVisibility, NewProjectModal,
-         FlagManagement } from "./ManagerViews";
+         FlagManagement, SubmissionReview } from "./ManagerViews";
 
 /**
  * My KAD — one place for the things a KAD is made of, in four lenses.
@@ -33,6 +33,10 @@ export default function KadView({ actor, selectedPeriod, onAnyAction }) {
   const wide = scope === "kad" || scope === "org" || scope === "exec";
   const lenses = [
     ["people", "People"],
+    // Attention: recent submissions with reported blockers first, so a manager
+    // can act without opening each allocation. Always shown (incl. Line Managers,
+    // whose scope is their own reports) — the API scopes it per role.
+    ["attention", "Attention"],
     // Flags had no home at all: the engine has been raising them on a cron with
     // nowhere to show them, and the acknowledge/assign/resolve actions were
     // built and unreachable. The API already scopes them per role.
@@ -56,6 +60,7 @@ export default function KadView({ actor, selectedPeriod, onAnyAction }) {
       </div>
 
       {lens === "people"   && <PeopleLens />}
+      {lens === "attention"   && <AttentionLens actor={actor} selectedPeriod={selectedPeriod} />}
       {lens === "flags"       && <FlagManagement actor={actor} selectedPeriod={selectedPeriod} />}
       {lens === "utilisation" && <ResourceVisibility selectedPeriod={selectedPeriod} />}
       {lens === "overview" && <KadDashboard actor={actor} selectedPeriod={selectedPeriod} onAnyAction={onAnyAction} />}
@@ -67,6 +72,87 @@ export default function KadView({ actor, selectedPeriod, onAnyAction }) {
         <NewProjectModal actor={actor}
           onClose={() => setNewProject(false)}
           onDone={() => setNewProject(false)} />
+      )}
+    </div>
+  );
+}
+
+/* ── Attention: recent submissions, blockers first ─────────────────────────── */
+
+function AttentionLens({ actor, selectedPeriod }) {
+  const roles = actor?.roles || [];
+  const canQuery = roles.some(r => r.role_name === "KAD Director" || r.role_name === "HRBP");
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+  const [blockersOnly, setBlockersOnly] = useState(false);
+  const [review, setReview] = useState(null);   // { id } — allocation to open in the review modal
+
+  const load = () => {
+    setData(null); setErr("");
+    kadApi.submissions(selectedPeriod || null, blockersOnly)
+      .then(setData).catch(e => setErr(e.message));
+  };
+  useEffect(load, [selectedPeriod, blockersOnly]);
+
+  if (err) return <div className="alert alert-danger">{err}</div>;
+  if (!data) return <div className="loading-center"><div className="spinner" /></div>;
+
+  const subs = data.submissions || [];
+  const hasBlocker = (s) => s.blockers && String(s.blockers).trim();
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-4 items-center">
+        {data.blocker_count > 0
+          ? <span className="badge badge-danger">{data.blocker_count} blocker{data.blocker_count === 1 ? "" : "s"} need attention</span>
+          : <span className="badge badge-success">No open blockers</span>}
+        <label className="t-caption flex items-center gap-2" style={{ marginLeft: "auto", cursor: "pointer" }}>
+          <input type="checkbox" checked={blockersOnly} onChange={e => setBlockersOnly(e.target.checked)} />
+          Blockers only
+        </label>
+      </div>
+
+      {subs.length === 0 ? (
+        <div className="empty">
+          <div className="empty-title">{blockersOnly ? "No blockers reported" : "No submissions yet"}</div>
+          <div className="empty-body">{blockersOnly
+            ? "Nothing is flagged as blocked in this period."
+            : "Submissions from your team appear here, newest first, with any blockers at the top."}</div>
+        </div>
+      ) : (
+        <div className="flex gap-2" style={{ flexDirection: "column" }}>
+          {subs.map(s => (
+            <div key={s.submission_id} className="card">
+              <div className="flex gap-2 items-center" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+                <div>
+                  <strong>{s.employee}</strong>
+                  <span className="t-caption"> · {s.project_name || "—"} · {s.output_metric}</span>
+                </div>
+                <div className="flex gap-2 items-center">
+                  {s.under_query ? <span className="badge badge-warning">Under query</span> : null}
+                  {s.has_proof ? <span className="badge badge-neutral">Proof</span> : null}
+                  <span className="t-caption">{s.date_of_activity}</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setReview({
+                    id: s.allocation_id, output_metric: s.output_metric, employee_name: s.employee,
+                    target_value: s.target_value, unit: s.unit, achievement_pct: s.achievement_pct,
+                  })}>Review</button>
+                </div>
+              </div>
+              <div className="t-caption mt-2">Output logged: {s.actual_output ?? "—"}</div>
+              {hasBlocker(s) && (
+                <div className="alert alert-danger mt-2" style={{ marginBottom: 0 }}>
+                  <strong>Blocker:</strong> {s.blockers}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {review && (
+        <SubmissionReview alloc={review} canQuery={canQuery}
+          onClose={() => setReview(null)}
+          onQueried={() => { setReview(null); load(); }} />
       )}
     </div>
   );
