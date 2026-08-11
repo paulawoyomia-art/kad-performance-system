@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
 export default function LoginScreen() {
-  const { login, logout, isAdmin } = useAuth();
+  const { login, logout, isAdmin, sessionExpired } = useAuth();
   const navigate = useNavigate();
   const [accountType, setAccountType] = useState("employee");
   const [email, setEmail]       = useState("");
@@ -156,6 +156,11 @@ export default function LoginScreen() {
               />
             </div>
 
+            {sessionExpired && !error && (
+              <div className="alert alert-warning" style={{ marginBottom: 16 }}>
+                Your session timed out for security. Please sign in again — any unsaved work will need to be re-entered.
+              </div>
+            )}
             {error && (
               <div className="alert alert-danger" style={{ marginBottom: 16 }}>
                 <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" style={{ flexShrink: 0, marginTop: 1 }}>
