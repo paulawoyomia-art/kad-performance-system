@@ -334,7 +334,7 @@ export function NewAllocationModal({ actor, defaultPeriod, onClose, onDone }) {
         {isExec && <span className="t-caption" style={{ fontWeight: 400 }}> (your Shared Services team and your direct reports)</span>}</label>
         <select className="form-select" value={form.employee_id} onChange={e => f("employee_id", e.target.value)}>
           <option value="">Select…</option>
-          {people?.map(p => <option key={p.id} value={p.id}>{p.full_name} ({p.employee_id}){isExec && p.kad_name && p.kad_id !== actor?.kad_id ? ` · ${p.kad_name}` : ""}</option>)}
+          {people?.map(p => <option key={p.id} value={p.id}>{p.full_name} ({p.employee_id}){p.kad_name && p.kad_id !== actor?.kad_id ? ` · ${p.kad_name}` : ""}</option>)}
         </select>
       </div>
       <div className="grid-2">
@@ -971,7 +971,7 @@ export function SubmissionReview({ alloc, canQuery, onClose, onQueried }) {
 }
 
 // Full-resolution proof viewer with zoom + pan, rendered in-app (no new tab).
-function ProofViewer({ proof, onClose }) {
+export function ProofViewer({ proof, onClose }) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef(null);
