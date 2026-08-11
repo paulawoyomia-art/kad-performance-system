@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useCallback } from "react";
-import { auth as authApi, getToken, setToken, clearToken } from "../api/client";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { auth as authApi, getToken, setToken, clearToken, setSessionExpiredHandler } from "../api/client";
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -30,8 +30,24 @@ export function AuthProvider({ children }) {
     else    sessionStorage.removeItem("kps_actor");
   }, []);
 
+  // Set true when the backend rejects our token mid-session — drives the
+  // "your session timed out" notice on the login screen.
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  // Register the global 401 handler: when any API call comes back unauthorized
+  // with a token attached, drop the session and return the user to login.
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      clearToken();
+      saveActor(null);
+      setSessionExpired(true);
+    });
+    return () => setSessionExpiredHandler(null);
+  }, [saveActor]);
+
   const login = useCallback(async (email, password) => {
     const res = await authApi.login(email, password);
+    setSessionExpired(false);
     setToken(res.token);
     const a = {
       token:               res.token,
@@ -78,7 +94,7 @@ export function AuthProvider({ children }) {
       isAdmin, isManagement,
       canSetTargets, canConfirm, canApprove,
       canSignoff, canConfirmSO,
-      hasRole,
+      hasRole, sessionExpired,
     }}>
       {children}
     </AuthCtx.Provider>
