@@ -16,12 +16,27 @@ export const getToken   = ()        => sessionStorage.getItem(TOKEN_KEY);
 export const setToken   = (t)       => sessionStorage.setItem(TOKEN_KEY, t);
 export const clearToken = ()        => sessionStorage.removeItem(TOKEN_KEY);
 
+// ── session-expired handling ─────────────────────────────────────────────────
+// When the backend rejects our token (session expired or revoked) every call
+// comes back 401. We clear the token and notify the app (AuthContext registers
+// the handler) so the user is sent back to login instead of quietly working
+// into a dead session where nothing saves.
+let onSessionExpired = null;
+export const setSessionExpiredHandler = (fn) => { onSessionExpired = fn; };
+function handleAuthFailure() {
+  // Guard on getToken() so a burst of concurrent 401s only fires this once.
+  if (!getToken()) return;
+  clearToken();
+  if (onSessionExpired) onSessionExpired();
+}
+
 // ── core fetch wrapper ───────────────────────────────────────────────────────
 async function req(method, path, { body, form, auth = true } = {}) {
   const headers = {};
+  let hadToken = false;
   if (auth) {
     const t = getToken();
-    if (t) headers["Authorization"] = `Bearer ${t}`;
+    if (t) { headers["Authorization"] = `Bearer ${t}`; hadToken = true; }
   }
   let bodyPayload;
   if (form) {
@@ -37,6 +52,9 @@ async function req(method, path, { body, form, auth = true } = {}) {
   else if (ct.includes("text/csv"))    data = await res.blob();
   else                                 data = await res.text();
   if (!res.ok) {
+    // A 401 on a request that carried a token means the session is dead —
+    // clear it and send the user back to login rather than failing silently.
+    if (res.status === 401 && hadToken) handleAuthFailure();
     const msg = data?.error || (typeof data === "string" ? data : `HTTP ${res.status}`);
     const err = new Error(msg);
     err.status = res.status;
@@ -55,7 +73,7 @@ export const proofs = {
 async function authedDownload(path, fallbackName) {
   const t = getToken();
   const res = await fetch(`${BASE}${path}`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) { if (res.status === 401 && t) handleAuthFailure(); throw new Error(`HTTP ${res.status}`); }
   const cd = res.headers.get("content-disposition") || "";
   const m = /filename="([^"]+)"/.exec(cd);
   const name = (m && m[1]) || fallbackName;
@@ -206,7 +224,7 @@ export const allocations = {
     const token = getToken();
     const res = await fetch(`${BASE}/allocations/${id}/submissions/${subId}/proof`,
       { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-    if (!res.ok) throw new Error("Could not load proof");
+    if (!res.ok) { if (res.status === 401 && token) handleAuthFailure(); throw new Error("Could not load proof"); }
     const blob = await res.blob();
     return URL.createObjectURL(blob);
   },
